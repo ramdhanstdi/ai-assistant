@@ -1,0 +1,42 @@
+# ==========================================
+# KONFIGURASI HARDWARE ROUTING AI ASSISTANT
+# ==========================================
+
+system:
+  debug_mode: true
+
+llm:
+  # 100% diproses oleh GPU Intel Arc B580 melalui LM Studio
+  # Pastikan LM Studio sedang berjalan dan server aktif di port 1234
+  api_base_url: "http://localhost:1234/v1"
+  api_key: "lm-studio"
+  temperature: 0.7
+  max_tokens: 512
+
+stt:
+  # Berjalan di CPU AMD Ryzen 8500G
+  # 'int8' digunakan agar konsumsi RAM sangat kecil namun tetap akurat
+  model_size: "base" 
+  device: "cpu"
+  compute_type: "int8"
+  language: "id" # Paksa deteksi ke bahasa Indonesia agar lebih cepat
+
+vision:
+  # Berjalan di iGPU / CPU
+  # Untuk tahap awal, kita set ke 'cpu' agar stabil dan tidak ada error library.
+  # Nanti bisa kita optimasi menggunakan 'dml' (DirectML) untuk iGPU AMD Radeon
+  model_id: "vikhyatk/moondream2"
+  revision: "2024-05-08" 
+  device: "cpu"
+
+tts:
+  # Kita menggunakan Edge TTS (Microsoft) yang butuh internet ringan
+  # Pilihan suara Indonesia: id-ID-GadisNeural (Perempuan) atau id-ID-ArdiNeural (Laki-laki)
+  voice: "id-ID-GadisNeural"
+  rate: "+30%" # Kecepatan normal
+  volume: "+0%"
+
+memory:
+  # Database Vektor (ChromaDB) untuk RAG Data Pribadi
+  persist_directory: "data/vectordb"
+  collection_name: "user_profile"
