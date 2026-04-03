@@ -1,0 +1,26 @@
+# --- Core & Config ---
+PyYAML==6.0.1
+requests==2.31.0
+aiohttp
+
+# --- STT (Speech to Text) ---
+faster-whisper
+SpeechRecognition==3.10.1
+
+# --- Vision (Image to Text via iGPU/CPU) ---
+opencv-python==4.9.0.80
+Pillow
+transformers
+einops
+accelerate
+
+# --- Memory & RAG ---
+chromadb==0.4.24
+
+# --- LLM / ML Foundation ---
+torch
+torchvision
+
+# --- TTS (Text to Speech sementara) ---
+piper-tts
+sounddevice
