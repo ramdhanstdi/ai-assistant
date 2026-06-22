@@ -10,27 +10,55 @@ llm:
   # Pastikan LM Studio sedang berjalan dan server aktif di port 1234
   api_base_url: "http://localhost:1234/v1"
   api_key: "lm-studio"
+  # Model dibuat agnostik: ganti string ini sesuai model yang dimuat di LM Studio
+  # (atau endpoint OpenAI-compatible lain seperti Ollama). JANGAN hard-code di kode.
+  model: "openai/gpt-oss-20b"
   temperature: 0.7
   max_tokens: 512
 
 stt:
   # Berjalan di CPU AMD Ryzen 8500G
   # 'int8' digunakan agar konsumsi RAM sangat kecil namun tetap akurat
-  model_size: "base" 
+  # 'model'     = repo-id Hugging Face (fallback auto-download).
+  # 'local_dir' = folder lokal hasil download manual; dipakai bila berisi file (lihat models/README.md).
+  model: "cahya/faster-whisper-medium-id"
+  local_dir: "models/stt/faster-whisper-medium-id"
   device: "cpu"
   compute_type: "int8"
   language: "id" # Paksa deteksi ke bahasa Indonesia agar lebih cepat
 
 vision:
-  # Berjalan di iGPU / CPU
-  # Untuk tahap awal, kita set ke 'cpu' agar stabil dan tidak ada error library.
-  # Nanti bisa kita optimasi menggunakan 'dml' (DirectML) untuk iGPU AMD Radeon
+  # Berjalan di iGPU / CPU. CATATAN: vision belum dirangkai ke main.py (modul opsional).
   model_id: "vikhyatk/moondream2"
-  revision: "2024-05-08" 
+  local_dir: "models/vision/moondream2"
+  revision: "2024-05-08"
   device: "cpu"
 
 tts:
-  # Kita menggunakan Edge TTS (Microsoft) yang butuh internet ringan
+  # Pilih engine TTS yang aktif. Semua di-load lewat factory (modules/tts_factory.py).
+  #   mms     -> Meta MMS-TTS (Bahasa Indonesia, 100% lokal/offline, Intel Arc/CPU). DEFAULT.
+  #   f5_indo -> F5-TTS finetune Indonesia (voice cloning dari sampel di folder voices/).
+  #   edge    -> Edge TTS Microsoft (cloud, butuh internet) -- legacy/fallback.
+  engine: "mms"
+
+  # --- MMS-TTS (default lokal Bahasa Indonesia) ---
+  mms:
+    model_id: "facebook/mms-tts-ind"          # repo-id (fallback auto-download)
+    local_dir: "models/tts/mms-tts-ind"       # folder lokal download manual (lihat models/README.md)
+    device: "auto" # auto -> pakai Intel Arc (xpu) bila tersedia, jika tidak fallback ke cpu
+
+  # --- F5-TTS voice cloning (Bahasa Indonesia) ---
+  # Taruh sampel suaramu di folder voices/ (lihat voices/README.md untuk format).
+  f5_indo:
+    model_repo: "Eempostor/F5-TTS-INDO-FINETUNE"
+    device: "auto"
+    # Checkpoint hasil download manual (lihat models/README.md). Kosongkan untuk pakai base default.
+    ckpt_file: "models/tts/f5-indo/f5_tts_ind.pt"
+    vocab_file: ""  # repo finetune tidak menyertakan vocab -> biarkan kosong (pakai vocab base F5)
+    ref_audio: "voices/reference.wav" # sampel suara yang akan ditiru (clone)
+    ref_text: "voices/reference.txt" # transkrip persis dari ref_audio
+
+  # --- Edge TTS (legacy, cloud) ---
   # Pilihan suara Indonesia: id-ID-GadisNeural (Perempuan) atau id-ID-ArdiNeural (Laki-laki)
   voice: "id-ID-GadisNeural"
   rate: "+30%" # Kecepatan normal
@@ -40,3 +68,6 @@ memory:
   # Database Vektor (ChromaDB) untuk RAG Data Pribadi
   persist_directory: "data/vectordb"
   collection_name: "user_profile"
+  # Model embedding untuk RAG. repo-id (fallback) + folder lokal download manual.
+  embedding_model: "all-MiniLM-L6-v2"
+  embedding_local_dir: "models/embedding/all-MiniLM-L6-v2"

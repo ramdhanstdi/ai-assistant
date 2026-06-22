@@ -3,3 +3,20 @@ __pycache__/
 *.pyc
 .env
 data/
+
+# Memori percakapan (data pribadi, jangan di-commit)
+memory.json
+
+# Sampel suara untuk voice cloning (data pribadi) + output TTS sementara
+voices/*.wav
+voices/*.mp3
+voices/*.flac
+temp_chunk.mp3
+temp_f5.wav
+captured_frame.jpg
+
+# Model besar hasil download manual: simpan struktur folder + README + .gitkeep saja
+models/**/*
+!models/**/
+!models/README.md
+!models/**/.gitkeep

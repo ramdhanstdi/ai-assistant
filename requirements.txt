@@ -1,3 +1,10 @@
+# ==========================================================
+# DEPENDENSI AI ASSISTANT LOKAL
+# Catatan device: target hardware = Intel Arc B580 + AMD Ryzen 8500G (TANPA CUDA).
+# Untuk akselerasi Intel Arc (xpu), install Intel Extension for PyTorch (IPEX)
+# secara terpisah sesuai versi torch-mu: https://intel.github.io/intel-extension-for-pytorch
+# ==========================================================
+
 # --- Core & Config ---
 PyYAML==6.0.1
 requests==2.31.0
@@ -6,21 +13,34 @@ aiohttp
 # --- STT (Speech to Text) ---
 faster-whisper
 SpeechRecognition==3.10.1
-
-# --- Vision (Image to Text via iGPU/CPU) ---
-opencv-python==4.9.0.80
-Pillow
-transformers
-einops
-accelerate
-
-# --- Memory & RAG ---
-chromadb==0.4.24
+PyAudio            # backend mikrofon untuk SpeechRecognition (sr.Microphone)
+numpy
 
 # --- LLM / ML Foundation ---
-torch
-torchvision
+torch              # untuk MMS/F5 TTS & (opsional) vision. Pilih build sesuai hardware.
 
-# --- TTS (Text to Speech sementara) ---
-piper-tts
-sounddevice
+# --- TTS lokal (default: MMS-TTS Bahasa Indonesia) ---
+transformers       # VitsModel untuk facebook/mms-tts-ind
+soundfile
+scipy
+sounddevice        # pemutaran waveform ke speaker
+
+# --- TTS voice cloning (opsional, engine f5_indo) ---
+# f5-tts           # uncomment bila ingin pakai voice cloning Bahasa Indonesia
+
+# --- TTS legacy (opsional, engine edge -> cloud Microsoft) ---
+edge-tts           # dibutuhkan hanya bila tts.engine = "edge"
+pygame             # pemutaran mp3 untuk Edge TTS
+
+# --- Memory & RAG ---
+# chromadb 0.4.x pakai np.float_ yang DIHAPUS di NumPy 2.0 -> wajib >=0.5.20.
+chromadb>=0.5.20
+sentence-transformers   # embedding all-MiniLM-L6-v2 untuk RAG
+
+# --- Vision (OPSIONAL / saat ini belum dirangkai ke main.py) ---
+# Berat (torch + transformers + opencv). Uncomment hanya bila vision diaktifkan.
+# opencv-python==4.9.0.80
+# Pillow
+# einops
+# accelerate
+# torchvision

@@ -9,19 +9,21 @@ Sebuah asisten AI lokal modular yang dirancang untuk berinteraksi menggunakan Ba
 - **🔊 Text-to-Speech (TTS):** Menggunakan **Edge TTS** dari Microsoft untuk menghasilkan suara Bahasa Indonesia yang natural (`id-ID-GadisNeural`).
 - **👁️ Vision Processing (Image to Text):** Terintegrasi dengan **Moondream2** (`vikhyatk/moondream2`) yang siap menjelaskan gambar dan melihat lingkungan (saat ini berjalan di CPU/iGPU).
 - **📚 Memori Jangka Panjang (RAG):** Menggunakan **ChromaDB** sebagai vektor database untuk menyimpan fakta tentang pengguna. Sistem akan menarik konteks secara otomatis pada percakapan selanjutnya.
-- **🔄 Sliding Window Memory:** Mampu mengingat 10 alur percakapan terakhir agar obrolan tetap relevan tanpa menghabiskan batasan *context window* pada LLM.
+- **🔄 Sliding Window Memory:** Mampu mengingat 10 alur percakapan terakhir agar obrolan tetap relevan tanpa menghabiskan batasan _context window_ pada LLM.
 
 ## 🛠️ Prasyarat & Instalasi
 
 Pastikan **Python 3.10+** (atau versi lebih baru) telah terinstal di sistem Anda.
 
 1. **Clone repository ini:**
+
    ```bash
    git clone https://github.com/ramdhanstdi/ai-assistant.git
    cd ai-assistant
    ```
 
 2. **Buat dan Aktifkan Virtual Environment (Disarankan):**
+
    ```bash
    python -m venv venv
    # Di Windows:
@@ -31,10 +33,12 @@ Pastikan **Python 3.10+** (atau versi lebih baru) telah terinstal di sistem Anda
    ```
 
 3. **Install Dependencies:**
+
    ```bash
    pip install -r requirements.txt
    ```
-   *(Catatan: Anda mungkin perlu menginstal PyTorch versi spesifik tergantung pada hardware yang Anda gunakan seperti CUDA/ROCm/DirectML).*
+
+   _(Catatan: Anda mungkin perlu menginstal PyTorch versi spesifik tergantung pada hardware yang Anda gunakan seperti CUDA/ROCm/DirectML)._
 
 4. **Siapkan LM Studio:**
    - Unduh dan jalankan [LM Studio](https://lmstudio.ai/).
@@ -43,7 +47,7 @@ Pastikan **Python 3.10+** (atau versi lebih baru) telah terinstal di sistem Anda
 
 ## 🚀 Cara Menjalankan
 
-Setelah semua konfigurasi siap, jalankan *core application*:
+Setelah semua konfigurasi siap, jalankan _core application_:
 
 ```bash
 python main.py
@@ -54,10 +58,11 @@ Bicaralah secara langsung ke mikrofon. Asisten akan menanggapi ucapan Anda secar
 ## ⚙️ Konfigurasi (`config.yaml`)
 
 Anda dapat mengatur berbagai parameter sistem secara fleksibel di dalam file `config.yaml`. Beberapa pengaturan penting meliputi:
+
 - URL & API Key untuk LLM (Default: `http://localhost:1234/v1`).
 - Pengaturan perangkat dan tipe komputasi (`cpu`, `int8`, dll) untuk modul STT dan Vision.
-- Pemilihan suara *Edge TTS* (`id-ID-GadisNeural` atau `id-ID-ArdiNeural`).
-- Direktori penyimpanan untuk *Vector Database*.
+- Pemilihan suara _Edge TTS_ (`id-ID-GadisNeural` atau `id-ID-ArdiNeural`).
+- Direktori penyimpanan untuk _Vector Database_.
 
 ## 📂 Struktur Direktori Utama
 
@@ -68,11 +73,12 @@ Anda dapat mengatur berbagai parameter sistem secara fleksibel di dalam file `co
   - `llm_client.py`: Integrasi streaming API Language Model.
   - `memory_engine.py`: ChromaDB Vector store untuk memori persisten.
   - `memory_rag.py`: (Opsional) Layer RAG untuk pemrosesan teks.
-  - `router.py`: Routing *intent* atau tugas.
+  - `router.py`: Routing _intent_ atau tugas.
   - `stt_engine.py`: Transkripsi suara (Faster-Whisper).
   - `tts_engine.py`: Pembangkitan suara natural (Edge TTS).
   - `vision_engine.py`: Pemahaman gambar (Moondream2).
 - `test_stt.py` - Script untuk mengetes fungsi mikrofon & rekaman.
 
 ---
-*Didesain khusus untuk privasi tinggi, operasi lokal, dan respon percakapan natural.*
+
+_Didesain khusus untuk privasi tinggi, operasi lokal, dan respon percakapan natural._

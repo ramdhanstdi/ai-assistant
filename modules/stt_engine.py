@@ -14,16 +14,20 @@ class STTManager:
             self.config = yaml.safe_load(file)
             
         stt_conf = self.config.get('stt', {})
-        
+
         # Ambil nilai parameter dinamis dari config.yaml
-        model_size = stt_conf.get('model_size', 'base')
+        # 'model' kini dibaca dari config (sebelumnya hard-code). Fallback ke 'model_size' lama.
+        # Pakai folder lokal (local_dir) bila berisi file hasil download manual, jika tidak repo-id.
+        from modules.model_paths import resolve
+        repo_id = stt_conf.get('model', stt_conf.get('model_size', 'cahya/faster-whisper-medium-id'))
+        model_name = resolve(stt_conf.get('local_dir'), repo_id)
         device = stt_conf.get('device', 'cpu')
         compute_type = stt_conf.get('compute_type', 'int8')
-        
-        print(f"Loading Whisper model 'cahya/faster-whisper-medium-id' on '{device}' with type '{compute_type}'...")
-        
+
+        print(f"Loading Whisper model '{model_name}' on '{device}' with type '{compute_type}'...")
+
         # Inisialisasi model faster-whisper dengan setting dinamis
-        self.model = WhisperModel("cahya/faster-whisper-medium-id", device=device, compute_type=compute_type)
+        self.model = WhisperModel(model_name, device=device, compute_type=compute_type)
         self.recognizer = sr.Recognizer()
         self.recognizer.dynamic_energy_threshold = True
 

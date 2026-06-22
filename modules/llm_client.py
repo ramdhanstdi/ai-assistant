@@ -20,10 +20,15 @@ class LLMClient:
         self.api_key = llm_conf.get('api_key', 'lm-studio')
         self.temperature = llm_conf.get('temperature', 0.7)
         self.max_tokens = llm_conf.get('max_tokens', 512)
-        
+        # Model dibaca dari config (agnostik) -- sebelumnya hard-code di signature.
+        self.model = llm_conf.get('model', 'openai/gpt-oss-20b')
+
         self.endpoint = f"{base_url}/chat/completions"
 
-    def stream_response(self, messages: List[Dict[str, str]], model="openai/gpt-oss-20b") -> Generator[str, None, None]:
+    def stream_response(self, messages: List[Dict[str, str]], model: str = None) -> Generator[str, None, None]:
+        # Default ke model dari config bila pemanggil tidak menentukan.
+        if model is None:
+            model = self.model
         """
         Mengirim messages ke LLM server dan melakukan streaming responsnya.
         Menghasilkan generator (yield) potongan kalimat berdasarkan tanda baca.
