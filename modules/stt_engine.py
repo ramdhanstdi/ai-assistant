@@ -36,34 +36,44 @@ class STTManager:
         self.recognizer = sr.Recognizer()
         self.recognizer.dynamic_energy_threshold = True
 
-    def listen_and_transcribe(self) -> str:
+    def capture(self):
         """
-        Merekam audio dari mikrofon default komputer hingga ada keheningan,
-        lalu mentranskripsikan hasilnya menggunakan model faster-whisper.
+        Merekam audio dari mikrofon default hingga ada keheningan.
+        Mengembalikan numpy array float32 (16kHz mono) atau None bila tidak ada suara.
+        Bagian "mic-specific" ini dipakai oleh LocalMicSource (lihat modules/local_io.py).
         """
         with sr.Microphone() as source:
             print("🎙️ Mendengarkan... (Silakan bicara, akan berhenti otomatis setelah ada jeda keheningan)")
-            
+
             # Anda bisa menyesuaikan noise floor ambient untuk akurasi deteksi silence yang lebih baik
             self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-            
+
             # listen() akan merekam hingga mendeteksi keheningan/silence
             try:
                 audio_data = self.recognizer.listen(source, timeout=5.0, phrase_time_limit=15.0)
             except sr.WaitTimeoutError:
-                return ""
-                
+                return None
+
             print("⏳ Memproses file audio dengan Whisper...")
 
         # Ambil raw data 16kHz, 16-bit mono
         raw_data = audio_data.get_raw_data(convert_rate=16000, convert_width=2)
-        
+
         # Ubah ke numpy array float32 yang diminta faster-whisper
-        audio_np = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32) / 32768.0
-        
+        return np.frombuffer(raw_data, dtype=np.int16).astype(np.float32) / 32768.0
+
+    def transcribe(self, audio_np) -> str:
+        """
+        Transkripsi audio numpy (16kHz mono float32) menjadi teks.
+        Ini bagian "otak" yang reusable: dipakai untuk audio dari mic (LocalIO)
+        MAUPUN dari robot (RobotIO/PCM via WebSocket nanti). Sumber audio tidak penting.
+        """
+        if audio_np is None or len(audio_np) == 0:
+            return ""
+
         # Ambil setelan bahasa dari config
         forced_language = self.config.get('stt', {}).get('language', 'id')
-        
+
         # Masukkan numpy array ke transcribe() dengan bahasa dipaksa
         segments, info = self.model.transcribe(audio_np, language=forced_language, task="transcribe", condition_on_previous_text=False, vad_filter=True, beam_size=self.beam_size)
 
@@ -72,7 +82,12 @@ class STTManager:
         for segment in segments:
             print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))
             texts.append(segment.text)
-            
-        full_text = " ".join(texts).strip()
-        
-        return full_text
+
+        return " ".join(texts).strip()
+
+    def listen_and_transcribe(self) -> str:
+        """Kompatibilitas: rekam mic lalu transkrip (capture + transcribe)."""
+        audio_np = self.capture()
+        if audio_np is None:
+            return ""
+        return self.transcribe(audio_np)

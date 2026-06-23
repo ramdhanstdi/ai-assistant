@@ -22,6 +22,10 @@ class LLMClient:
         self.max_tokens = llm_conf.get('max_tokens', 512)
         # Model dibaca dari config (agnostik) -- sebelumnya hard-code di signature.
         self.model = llm_conf.get('model', 'openai/gpt-oss-20b')
+        # Matikan "thinking/reasoning" untuk model reasoning (mis. Qwen3): tanpa ini,
+        # reasoning bisa menghabiskan token budget sehingga 'content' jawaban KOSONG,
+        # plus jauh lebih lambat. Aman untuk model non-reasoning (kwargs diabaikan).
+        self.disable_thinking = llm_conf.get('disable_thinking', True)
 
         self.endpoint = f"{base_url}/chat/completions"
 
@@ -45,6 +49,9 @@ class LLMClient:
             "temperature": self.temperature,
             "max_tokens": self.max_tokens
         }
+        # Nonaktifkan thinking pada model reasoning (Qwen3 dll) lewat template kwargs.
+        if self.disable_thinking:
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
 
         try:
             response = requests.post(self.endpoint, headers=headers, json=payload, stream=True, timeout=60)

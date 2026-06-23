@@ -21,11 +21,12 @@ from modules.stt_engine import STTManager
 from modules.llm_client import LLMClient
 from modules.tts_factory import get_tts_manager
 from modules.memory_engine import VectorDBManager
+from modules.local_io import LocalIO
 
 MEMORY_FILE = 'memory.json'
 
 DEFAULT_SYSTEM_PROMPT = {
-    "role": "assistant",
+    "role": "system",
     "content": (
         "Kamu adalah teman ngobrol virtual yang asyik, cerdas, dan terdengar natural seperti manusia. "
         "Bicaralah dengan Bahasa Indonesia sehari-hari yang santai dan akrab (pakai aku/kamu), "
@@ -66,7 +67,7 @@ def save_memory(messages):
     for m in messages:
         if m.get("role") == "system" and m.get("content", "").startswith("Context:"):
             summary = m["content"].replace("Context: ", "").strip()
-        elif not (m.get("role") == "assistant" and "Kamu adalah teman ngobrol virtual" in m.get("content", "")):
+        elif not (m.get("role") == "system" and "Kamu adalah teman ngobrol virtual" in m.get("content", "")):
             history.append(m)
             
     try:
@@ -104,7 +105,11 @@ def main():
         
         print("[4/4] Memuat Vector DB (Memori Jangka Panjang)...")
         vectordb = VectorDBManager()
-        
+
+        # Bungkus mic & speaker di balik kontrak I/O. Otak memakai 'io', bukan stt/tts langsung,
+        # jadi sumber/tujuan suara bisa ditukar (RobotIO nanti) tanpa mengubah loop ini.
+        io = LocalIO(stt, tts)
+
         print("\n✅ SEMUA SISTEM SIAP!\n")
     except Exception as e:
         print(f"❌ Gagal memuat modul: {e}")
@@ -120,9 +125,12 @@ def main():
         try:
             print("\n" + "-"*50)
             
-            # TAHAP A: MENDENGAR (STT)
-            user_text = stt.listen_and_transcribe()
+            # TAHAP A: MENDENGAR — AudioSource (mic lokal) -> STT (otak)
+            io.feedback.state("listening")
+            audio = io.source.read()
+            user_text = stt.transcribe(audio)
             if not user_text:
+                io.feedback.state("idle")
                 continue # Kalau ga kedengeran apa-apa, ulang loop-nya
                 
             print(f"🧑 Anda: {user_text}")
@@ -134,7 +142,7 @@ def main():
                     summary_text = asyncio.run(summarize_now(messages, llm))
                     history_slice = messages[-5:]
                     # Cleanup default prompt dari history_slice bila ada di indeks terbawah
-                    history_slice = [m for m in history_slice if not (m.get("role") == "assistant" and "Kamu adalah teman ngobrol" in m.get("content", ""))]
+                    history_slice = [m for m in history_slice if not (m.get("role") == "system" and "Kamu adalah teman ngobrol" in m.get("content", ""))]
                     
                     with open(MEMORY_FILE, 'w', encoding='utf-8') as f:
                         json.dump({"summary": summary_text, "history": history_slice}, f, indent=4)
@@ -142,7 +150,7 @@ def main():
                     print(f"❌ Error saat menyimpan summary: {e}")
                     
                 print("🛑 Mematikan sistem. Sampai jumpa!")
-                tts.speak_chunk("Yaudah, saya matikan sistemnya. ADIOS!") # Optional: Kasih ucapan perpisahan
+                io.sink.speak("Yaudah, saya matikan sistemnya. ADIOS!") # Optional: Kasih ucapan perpisahan
                 break
 
             # Cek dan simpan fakta ke memori jangka panjang
@@ -190,7 +198,8 @@ def main():
             # dengan LLM yang sedang berpikir. Filler memberi respons instan ke user
             # sementara jawaban asli digenerate. Di-join sebelum jawaban diputar (lihat bawah)
             # agar tidak bertabrakan di audio device.
-            filler_thread = threading.Thread(target=tts.speak_chunk, args=("Hmmmmm,",), daemon=True)
+            io.feedback.state("thinking")
+            filler_thread = threading.Thread(target=io.sink.speak, args=("Hmmmmm,",), daemon=True)
             filler_thread.start()
 
             print(f"🤖 AI: ", end="", flush=True)
@@ -218,13 +227,14 @@ def main():
             # (biasanya sudah selesai karena LLM lebih lama). Lalu putar jawaban asli.
             filler_thread.join()
 
-            # Kita bungkus full_response_text ke dalam list []
-            # agar dibaca sebagai 1 chunk raksasa oleh Edge TTS
-            tts.stream_tts([full_response_text])
-            
+            # Salurkan jawaban ke AudioSink sesi (speaker lokal sekarang; robot nanti).
+            io.feedback.state("speaking")
+            io.sink.speak(full_response_text)
+            io.feedback.state("idle")
+
             # Simpan ke memori persisten di setiap putaran
             save_memory(messages)
-            
+
             print() # Enter setelah selesai ngomong
 
         except KeyboardInterrupt:
@@ -233,6 +243,7 @@ def main():
             break
         except Exception as e:
             print(f"\n❌ Terjadi Error di Main Loop: {e}")
+            io.feedback.state("confused")
 
 if __name__ == "__main__":
     main()
