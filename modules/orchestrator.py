@@ -8,6 +8,7 @@ sekarang dan RobotIO (ESP32) nanti bisa ditukar tanpa mengubah orchestrator.
 import json
 import os
 import time
+import queue
 import asyncio
 import threading
 
@@ -126,7 +127,14 @@ class Orchestrator:
         session.io.sink.speak("Yaudah, saya matikan sistemnya. ADIOS!")
 
     def _handle_turn(self, session: Session, user_text: str):
-        """Proses satu giliran user: fakta -> memori -> RAG -> LLM (+ filler) -> TTS."""
+        """
+        Proses satu giliran user: fakta -> memori -> RAG -> LLM (+ filler) -> TTS streaming.
+
+        STREAMING per kalimat (Langkah 4): LLM digenerate di thread PRODUCER yang mendorong
+        tiap potongan-kalimat ke antrian; TTS (consumer) mengucapkannya BEGITU siap sambil
+        LLM terus menggenerate kalimat berikutnya. Jadi kalimat pertama keluar jauh lebih
+        cepat (tidak menunggu seluruh jawaban) dan generasi overlap dengan pemutaran.
+        """
         messages = session.messages
 
         # Simpan fakta ke memori jangka panjang (heuristik kata kunci)
@@ -143,26 +151,47 @@ class Orchestrator:
         # Injeksi konteks (RAG)
         temp_messages = self._build_with_rag(messages, user_text)
 
-        # FILLER PARALEL (latency masking): putar "Hmm" berbarengan dengan LLM berpikir.
         session.io.feedback.state("thinking")
+
+        # PRODUCER: streaming LLM -> antrian (sekaligus dikumpulkan untuk memori).
+        chunk_q: "queue.Queue" = queue.Queue()
+        full_response_parts = []
+
+        def _produce():
+            try:
+                print("🤖 AI: ", end="", flush=True)
+                for chunk in self.llm.stream_response(temp_messages):
+                    full_response_parts.append(chunk)
+                    chunk_q.put(chunk)
+                print()
+            finally:
+                chunk_q.put(None)  # sentinel: selesai (selalu dikirim walau ada error)
+
+        producer = threading.Thread(target=_produce, daemon=True)
+        producer.start()
+
+        # FILLER PARALEL (latency masking): "Hmm" berbarengan dengan LLM berpikir,
+        # lalu tunggu selesai agar tidak tabrakan dengan jawaban di audio device.
         filler_thread = threading.Thread(target=session.io.sink.speak, args=(self.FILLER_TEXT,), daemon=True)
         filler_thread.start()
+        filler_thread.join()
 
-        print("🤖 AI: ", end="", flush=True)
-        full_response_parts = []
-        for chunk in self.llm.stream_response(temp_messages):
-            full_response_parts.append(chunk)
-            print(chunk, end=" ", flush=True)
-        print()
+        # CONSUMER: ucapkan tiap kalimat dari antrian begitu tersedia (streaming).
+        def _sentences():
+            while True:
+                chunk = chunk_q.get()
+                if chunk is None:
+                    return
+                if chunk and chunk.strip():
+                    yield chunk
 
+        session.io.feedback.state("speaking")
+        session.io.sink.speak_stream(_sentences())
+        session.io.feedback.state("idle")
+
+        producer.join()
         full_response_text = " ".join(full_response_parts).strip()
         messages.append({"role": "assistant", "content": full_response_text})
-
-        # Tunggu filler selesai agar tidak tabrakan, lalu putar jawaban asli.
-        filler_thread.join()
-        session.io.feedback.state("speaking")
-        session.io.sink.speak(full_response_text)
-        session.io.feedback.state("idle")
 
         self.save_messages(messages)
         print()
