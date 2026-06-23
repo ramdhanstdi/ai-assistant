@@ -12,9 +12,9 @@ llm:
   api_key: "lm-studio"
   # Model dibuat agnostik: ganti string ini sesuai model yang dimuat di LM Studio
   # (atau endpoint OpenAI-compatible lain seperti Ollama). JANGAN hard-code di kode.
-  model: "openai/gpt-oss-20b"
+  model: "qwen2.5-coder-7b-instruct"
   temperature: 0.7
-  max_tokens: 512
+  max_tokens: 5120
 
 stt:
   # Berjalan di CPU AMD Ryzen 8500G
@@ -26,6 +26,9 @@ stt:
   device: "cpu"
   compute_type: "int8"
   language: "id" # Paksa deteksi ke bahasa Indonesia agar lebih cepat
+  # --- Tuning kecepatan CPU (tanpa turunkan kualitas berarti) ---
+  cpu_threads: 0   # 0 = pakai semua core (os.cpu_count()). Mempercepat di CPU multi-core.
+  beam_size: 1     # 1 = greedy (lebih cepat). Default whisper 5; untuk obrolan kasual beda akurasi minim.
 
 vision:
   # Berjalan di iGPU / CPU. CATATAN: vision belum dirangkai ke main.py (modul opsional).
@@ -43,8 +46,8 @@ tts:
 
   # --- MMS-TTS (default lokal Bahasa Indonesia) ---
   mms:
-    model_id: "facebook/mms-tts-ind"          # repo-id (fallback auto-download)
-    local_dir: "models/tts/mms-tts-ind"       # folder lokal download manual (lihat models/README.md)
+    model_id: "facebook/mms-tts-ind" # repo-id (fallback auto-download)
+    local_dir: "models/tts/mms-tts-ind" # folder lokal download manual (lihat models/README.md)
     device: "auto" # auto -> pakai Intel Arc (xpu) bila tersedia, jika tidak fallback ke cpu
 
   # --- F5-TTS voice cloning (Bahasa Indonesia) ---
@@ -54,7 +57,7 @@ tts:
     device: "auto"
     # Checkpoint hasil download manual (lihat models/README.md). Kosongkan untuk pakai base default.
     ckpt_file: "models/tts/f5-indo/f5_tts_ind.pt"
-    vocab_file: ""  # repo finetune tidak menyertakan vocab -> biarkan kosong (pakai vocab base F5)
+    vocab_file: "" # repo finetune tidak menyertakan vocab -> biarkan kosong (pakai vocab base F5)
     ref_audio: "voices/reference.wav" # sampel suara yang akan ditiru (clone)
     ref_text: "voices/reference.txt" # transkrip persis dari ref_audio
 

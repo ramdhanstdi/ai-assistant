@@ -26,7 +26,12 @@ scipy
 sounddevice        # pemutaran waveform ke speaker
 
 # --- TTS voice cloning (opsional, engine f5_indo) ---
-# f5-tts           # uncomment bila ingin pakai voice cloning Bahasa Indonesia
+# Install: pip install f5-tts torchaudio==2.10.0   (torchaudio HARUS samakan versi torch)
+# Tidak butuh FFmpeg: modules/tts_f5.py sudah patch torchaudio.load -> soundfile,
+# set KMP_DUPLICATE_LIB_OK, dan pre-load pyarrow untuk cegah segfault di Windows.
+# CATATAN: di CPU sangat lambat (~90 dtk/kalimat). Praktis hanya bila ada GPU.
+# f5-tts
+# torchaudio==2.10.0
 
 # --- TTS legacy (opsional, engine edge -> cloud Microsoft) ---
 edge-tts           # dibutuhkan hanya bila tts.engine = "edge"

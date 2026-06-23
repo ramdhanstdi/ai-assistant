@@ -11,8 +11,10 @@ memory.json
 voices/*.wav
 voices/*.mp3
 voices/*.flac
+voices/*.txt
 temp_chunk.mp3
 temp_f5.wav
+f5_out_test.wav
 captured_frame.jpg
 
 # Model besar hasil download manual: simpan struktur folder + README + .gitkeep saja

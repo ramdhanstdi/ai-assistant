@@ -3,6 +3,11 @@ import time
 import json
 import asyncio
 import os
+import threading
+
+# Cegah crash (segfault) konflik OpenMP ganda di Windows saat torch/ctranslate2 + numba/librosa
+# (dipakai F5-TTS) dimuat berbarengan. Harus di-set SEBELUM library berat diimpor.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 # Pastikan output emoji/Unicode tidak meng-crash terminal Windows lawas (cp1252).
 # Tanpa ini, print berisi emoji (🔊 🎙️ ✅ dst) bisa melempar UnicodeEncodeError.
@@ -22,12 +27,18 @@ MEMORY_FILE = 'memory.json'
 DEFAULT_SYSTEM_PROMPT = {
     "role": "assistant",
     "content": (
-        "Kamu adalah teman ngobrol virtual yang asyik dan cerdas. "
-        "ATURAN MUTLAK: Jawablah setiap ucapan dengan SANGAT SINGKAT, padat, "
-        "dan gunakan bahasa Indonesia pergaulan sehari-hari yang kasual (aku/kamu, santai). "
-        "Maksimal jawabanmu HANYA 3 kalimat pendek saja. "
-        "DILARANG KERAS memberikan penjelasan panjang, membuat daftar (bullet points), atau bertele-tele, "
-        "KECUALI user secara eksplisit menggunakan kata 'jelaskan', 'ceritakan', atau meminta detail lebih lanjut."
+        "Kamu adalah teman ngobrol virtual yang asyik, cerdas, dan terdengar natural seperti manusia. "
+        "Bicaralah dengan Bahasa Indonesia sehari-hari yang santai dan akrab (pakai aku/kamu), "
+        "mengalir dan tidak kaku. "
+        "PENTING — karena jawabanmu akan DIBACAKAN dengan suara, perhatikan penulisannya: "
+        "1) Pakai tanda baca yang lengkap dan benar: titik di akhir kalimat, koma untuk jeda, "
+        "serta tanda tanya atau tanda seru sesuai konteks, supaya intonasinya pas saat diucapkan. "
+        "2) Pakai kapitalisasi yang benar: huruf besar di awal tiap kalimat dan pada nama orang, "
+        "tempat, atau merek. "
+        "3) Tulis kalimat yang utuh dan wajar; jangan huruf kecil semua dan jangan singkatan aneh. "
+        "Tetap RINGKAS dan padat: cukup 1 sampai 3 kalimat pendek yang natural. "
+        "Jangan bertele-tele dan jangan membuat daftar berpoin, KECUALI user secara eksplisit "
+        "memakai kata 'jelaskan', 'ceritakan', atau meminta penjelasan lebih detail."
     )
 }
 
@@ -111,7 +122,6 @@ def main():
             
             # TAHAP A: MENDENGAR (STT)
             user_text = stt.listen_and_transcribe()
-            
             if not user_text:
                 continue # Kalau ga kedengeran apa-apa, ulang loop-nya
                 
@@ -132,7 +142,7 @@ def main():
                     print(f"❌ Error saat menyimpan summary: {e}")
                     
                 print("🛑 Mematikan sistem. Sampai jumpa!")
-                tts.speak_chunk("Yaudah, saya matikan sistemnya. Dah!") # Optional: Kasih ucapan perpisahan
+                tts.speak_chunk("Yaudah, saya matikan sistemnya. ADIOS!") # Optional: Kasih ucapan perpisahan
                 break
 
             # Cek dan simpan fakta ke memori jangka panjang
@@ -176,10 +186,17 @@ def main():
                     "content": f"Informasi tambahan dari memori: {context}. Gunakan informasi ini HANYA jika relevan dengan pertanyaan user."
                 })
 
+            # FILLER PARALEL (latency masking): putar "Hmm" di thread terpisah BERSAMAAN
+            # dengan LLM yang sedang berpikir. Filler memberi respons instan ke user
+            # sementara jawaban asli digenerate. Di-join sebelum jawaban diputar (lihat bawah)
+            # agar tidak bertabrakan di audio device.
+            filler_thread = threading.Thread(target=tts.speak_chunk, args=("Hmmmmm,",), daemon=True)
+            filler_thread.start()
+
             print(f"🤖 AI: ", end="", flush=True)
-            
+
             full_response_parts = []
-            
+
             # Loop ini HANYA menampilkan teks ke layar (belum dikirim ke suara)
             # Menggunakan temp_messages agar system prompt sementara tidak merusak history memori chat
             for chunk in llm.stream_response(temp_messages):
@@ -197,7 +214,11 @@ def main():
             # ==========================================================
             # TAHAP C: BERBICARA (TTS) - Baca teks utuh dengan intonasi natural
             # ==========================================================
-            # Kita bungkus full_response_text ke dalam list [] 
+            # Tunggu filler "Hmm" selesai diputar dulu agar tidak tabrakan dengan jawaban
+            # (biasanya sudah selesai karena LLM lebih lama). Lalu putar jawaban asli.
+            filler_thread.join()
+
+            # Kita bungkus full_response_text ke dalam list []
             # agar dibaca sebagai 1 chunk raksasa oleh Edge TTS
             tts.stream_tts([full_response_text])
             

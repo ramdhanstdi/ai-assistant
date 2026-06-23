@@ -50,8 +50,45 @@ class F5TTSManager:
             with open(self.ref_text_path, "r", encoding="utf-8") as f:
                 self.ref_text = f.read().strip()
 
-        # Lazy-import: f5-tts berat & opsional.
-        from f5_tts.api import F5TTS
+        # Cegah segfault konflik OpenMP ganda (Windows) saat f5-tts memuat numba/librosa
+        # bersama torch/ctranslate2. Set sebelum import f5_tts (defensif bila dipakai standalone).
+        os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
+        # Pre-load pyarrow LEBIH DULU. f5-tts menarik 'datasets'->'pyarrow' (lewat trainer,
+        # padahal cuma perlu untuk training). Bila pyarrow dimuat di tengah rantai import
+        # bersama torch/torchaudio, native lib-nya bisa access-violation (segfault) di Windows.
+        # Memuatnya duluan membuat native lib-nya bersih.
+        try:
+            import pyarrow.dataset  # noqa: F401
+        except Exception:
+            pass
+
+        # torchaudio 2.10 mengarahkan torchaudio.load() ke torchcodec yang butuh FFmpeg 4-7
+        # (tidak ada / versi salah di Windows). f5-tts hanya memakai torchaudio.load untuk
+        # membaca audio referensi (utils_infer.py). Kita ganti dengan loader berbasis soundfile
+        # (libsndfile, tanpa FFmpeg). Output f5 sendiri sudah pakai soundfile (sf.write).
+        try:
+            import torchaudio as _ta
+            import torch as _torch
+            import soundfile as _sf
+
+            def _load_via_soundfile(filepath, *args, **kwargs):
+                data, sr = _sf.read(str(filepath), dtype="float32", always_2d=True)  # (frame, channel)
+                return _torch.from_numpy(data.T).contiguous(), sr  # (channel, frame)
+
+            _ta.load = _load_via_soundfile
+        except Exception:
+            pass
+
+        # Lazy-import: f5-tts berat & opsional. Beri pesan jelas bila belum terinstall.
+        try:
+            from f5_tts.api import F5TTS
+        except ImportError as e:
+            raise ImportError(
+                "Engine TTS 'f5_indo' butuh paket 'f5-tts' yang belum terinstall.\n"
+                "   Pasang dulu:  pip install f5-tts torchaudio==2.10.0\n"
+                "   ATAU ganti ke engine lokal lain di config.yaml -> tts.engine: \"mms\"."
+            ) from e
 
         print(f"🔊 Memuat F5-TTS (Indo, cloning) di device '{self.device}'...")
         self.model = F5TTS(

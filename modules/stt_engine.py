@@ -24,10 +24,15 @@ class STTManager:
         device = stt_conf.get('device', 'cpu')
         compute_type = stt_conf.get('compute_type', 'int8')
 
-        print(f"Loading Whisper model '{model_name}' on '{device}' with type '{compute_type}'...")
+        # Tuning kecepatan: cpu_threads (0 = semua core) & beam_size (1 = greedy, lebih cepat).
+        cpu_threads = stt_conf.get('cpu_threads', 0) or os.cpu_count()
+        self.beam_size = stt_conf.get('beam_size', 1)
+
+        print(f"Loading Whisper model '{model_name}' on '{device}' with type '{compute_type}' "
+              f"(cpu_threads={cpu_threads}, beam_size={self.beam_size})...")
 
         # Inisialisasi model faster-whisper dengan setting dinamis
-        self.model = WhisperModel(model_name, device=device, compute_type=compute_type)
+        self.model = WhisperModel(model_name, device=device, compute_type=compute_type, cpu_threads=cpu_threads)
         self.recognizer = sr.Recognizer()
         self.recognizer.dynamic_energy_threshold = True
 
@@ -60,7 +65,7 @@ class STTManager:
         forced_language = self.config.get('stt', {}).get('language', 'id')
         
         # Masukkan numpy array ke transcribe() dengan bahasa dipaksa
-        segments, info = self.model.transcribe(audio_np, language=forced_language, task="transcribe", condition_on_previous_text=False, vad_filter=True)
+        segments, info = self.model.transcribe(audio_np, language=forced_language, task="transcribe", condition_on_previous_text=False, vad_filter=True, beam_size=self.beam_size)
 
         # Segment bertipe generator, sehingga kita loop dan gabungkan hasilnya
         texts = []
