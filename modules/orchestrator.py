@@ -8,9 +8,12 @@ sekarang dan RobotIO (ESP32) nanti bisa ditukar tanpa mengubah orchestrator.
 import json
 import os
 import time
+import types
 import queue
 import asyncio
 import threading
+
+from modules.tool_registry import build_default_registry
 
 
 class Session:
@@ -25,6 +28,7 @@ class Orchestrator:
     STOP_WORDS = ['berhenti', 'keluar', 'matikan', 'tutup', 'exit']
     FACT_WORDS = ['namaku', 'saya adalah', 'saya suka', 'aku tinggal']
     FILLER_TEXT = "Hmmmmm,"
+    MAX_TOOL_HOPS = 3  # batas iterasi tool-calling agar tidak loop tak hingga
 
     def __init__(self, stt, llm, vectordb, system_prompt,
                  max_history_turns: int = 12, memory_file: str = "memory.json"):
@@ -34,6 +38,8 @@ class Orchestrator:
         self.system_prompt = system_prompt
         self.max_history_turns = max_history_turns
         self.memory_file = memory_file
+        # Lapisan aksi: registry tool. Context memberi tool akses ke komponen otak (vectordb).
+        self.tools = build_default_registry(types.SimpleNamespace(vectordb=vectordb))
 
     # ===================== Memori persisten =====================
     def load_messages(self):
@@ -128,12 +134,12 @@ class Orchestrator:
 
     def _handle_turn(self, session: Session, user_text: str):
         """
-        Proses satu giliran user: fakta -> memori -> RAG -> LLM (+ filler) -> TTS streaming.
+        Proses satu giliran user: fakta -> memori -> RAG -> (tool-loop) LLM -> TTS streaming.
 
-        STREAMING per kalimat (Langkah 4): LLM digenerate di thread PRODUCER yang mendorong
-        tiap potongan-kalimat ke antrian; TTS (consumer) mengucapkannya BEGITU siap sambil
-        LLM terus menggenerate kalimat berikutnya. Jadi kalimat pertama keluar jauh lebih
-        cepat (tidak menunggu seluruh jawaban) dan generasi overlap dengan pemutaran.
+        TOOL-LOOP (Langkah 5): tiap ronde LLM dikirim daftar tool. Bila model memanggil tool,
+        tool dieksekusi, hasilnya dimasukkan ke konteks, lalu ronde berikutnya menstream jawaban.
+        Bila tidak ada panggilan tool, content ronde itu langsung jadi jawaban (di-stream & diucapkan,
+        mempertahankan streaming per kalimat dari Langkah 4).
         """
         messages = session.messages
 
@@ -148,35 +154,75 @@ class Orchestrator:
             messages = self._compress_memory(messages)
             session.messages = messages
 
-        # Injeksi konteks (RAG)
-        temp_messages = self._build_with_rag(messages, user_text)
+        # Konteks kerja untuk ronde-ronde LLM (RAG + tempat menaruh hasil tool). Tidak dipersist.
+        working = self._build_with_rag(messages, user_text)
 
         session.io.feedback.state("thinking")
+        # Filler "Hmm" paralel dengan ronde pertama; di-join sebelum suara apa pun diputar.
+        filler_thread = threading.Thread(target=session.io.sink.speak, args=(self.FILLER_TEXT,), daemon=True)
+        filler_thread.start()
 
-        # PRODUCER: streaming LLM -> antrian (sekaligus dikumpulkan untuk memori).
+        final_text = ""
+        for hop in range(self.MAX_TOOL_HOPS + 1):
+            # Ronde terakhir: paksa jawaban teks (tanpa tool) agar loop berhenti.
+            tools = None if hop == self.MAX_TOOL_HOPS else self.tools.schemas()
+            pre_speak = filler_thread.join if hop == 0 else None
+
+            text, tool_calls = self._stream_round(session, working, tools=tools, pre_speak=pre_speak)
+
+            if tool_calls and hop < self.MAX_TOOL_HOPS:
+                # Catat niat memanggil tool + hasil eksekusinya ke konteks kerja.
+                working.append({
+                    "role": "assistant",
+                    "content": text or "",
+                    "tool_calls": [{"id": tc["id"], "type": "function",
+                                    "function": {"name": tc["name"], "arguments": tc["arguments"]}}
+                                   for tc in tool_calls],
+                })
+                for tc in tool_calls:
+                    try:
+                        args = json.loads(tc["arguments"] or "{}")
+                    except Exception:
+                        args = {}
+                    result = self.tools.execute(tc["name"], args)
+                    print(f"   [tool: {tc['name']}({args}) -> {result[:80]}]")
+                    working.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+                continue  # ronde berikutnya: stream jawaban memakai hasil tool
+
+            final_text = text
+            break
+
+        session.io.feedback.state("idle")
+        messages.append({"role": "assistant", "content": final_text})
+        self.save_messages(messages)
+        print()
+
+    def _stream_round(self, session: Session, working, tools=None, pre_speak=None):
+        """
+        Satu ronde LLM streaming: producer (LLM -> antrian) + consumer (TTS speak_stream).
+        Kembalikan (teks_lengkap, tool_calls). Content (bila ada) langsung diucapkan per kalimat.
+        pre_speak: callable yang dipanggil sebelum mulai mengucapkan (mis. join filler).
+        """
         chunk_q: "queue.Queue" = queue.Queue()
-        full_response_parts = []
+        parts = []
+        tool_calls = []
 
         def _produce():
             try:
                 print("🤖 AI: ", end="", flush=True)
-                for chunk in self.llm.stream_response(temp_messages):
-                    full_response_parts.append(chunk)
+                for chunk in self.llm.stream_response(working, tools=tools, tool_calls_out=tool_calls):
+                    parts.append(chunk)
                     chunk_q.put(chunk)
                 print()
             finally:
-                chunk_q.put(None)  # sentinel: selesai (selalu dikirim walau ada error)
+                chunk_q.put(None)
 
         producer = threading.Thread(target=_produce, daemon=True)
         producer.start()
 
-        # FILLER PARALEL (latency masking): "Hmm" berbarengan dengan LLM berpikir,
-        # lalu tunggu selesai agar tidak tabrakan dengan jawaban di audio device.
-        filler_thread = threading.Thread(target=session.io.sink.speak, args=(self.FILLER_TEXT,), daemon=True)
-        filler_thread.start()
-        filler_thread.join()
+        if pre_speak:
+            pre_speak()
 
-        # CONSUMER: ucapkan tiap kalimat dari antrian begitu tersedia (streaming).
         def _sentences():
             while True:
                 chunk = chunk_q.get()
@@ -187,14 +233,9 @@ class Orchestrator:
 
         session.io.feedback.state("speaking")
         session.io.sink.speak_stream(_sentences())
-        session.io.feedback.state("idle")
 
         producer.join()
-        full_response_text = " ".join(full_response_parts).strip()
-        messages.append({"role": "assistant", "content": full_response_text})
-
-        self.save_messages(messages)
-        print()
+        return " ".join(parts).strip(), tool_calls
 
     def _compress_memory(self, messages):
         """Kompres bagian tengah riwayat jadi 2 kalimat ringkasan (recursive summarization)."""

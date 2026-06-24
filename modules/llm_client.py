@@ -29,19 +29,26 @@ class LLMClient:
 
         self.endpoint = f"{base_url}/chat/completions"
 
-    def stream_response(self, messages: List[Dict[str, str]], model: str = None) -> Generator[str, None, None]:
+    def stream_response(self, messages: List[Dict[str, str]], model: str = None,
+                        tools=None, tool_calls_out=None) -> Generator[str, None, None]:
+        """
+        Streaming respons LLM; yield potongan kalimat (content) berdasarkan tanda baca.
+
+        tools          : daftar schema function-calling (opsional). Bila model memutuskan
+                         memanggil tool, ia mengirim tool_calls (bukan content).
+        tool_calls_out : list opsional; bila diberikan, tool_calls yang terdeteksi di stream
+                         di-append ke sini sebagai dict {id, name, arguments}. Pemanggil cek
+                         list ini setelah generator habis untuk tahu apakah ada panggilan tool.
+        """
         # Default ke model dari config bila pemanggil tidak menentukan.
         if model is None:
             model = self.model
-        """
-        Mengirim messages ke LLM server dan melakukan streaming responsnya.
-        Menghasilkan generator (yield) potongan kalimat berdasarkan tanda baca.
-        """
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        
+
         payload = {
             "model": model,
             "messages": messages,
@@ -49,6 +56,8 @@ class LLMClient:
             "temperature": self.temperature,
             "max_tokens": self.max_tokens
         }
+        if tools:
+            payload["tools"] = tools
         # Nonaktifkan thinking pada model reasoning (Qwen3 dll) lewat template kwargs.
         if self.disable_thinking:
             payload["chat_template_kwargs"] = {"enable_thinking": False}
@@ -62,31 +71,44 @@ class LLMClient:
 
         current_sentence = []
         punctuation_marks = ['.', ',', '!', '?', '\n', ':', ';']
+        tool_acc = {}  # index -> {id, name, arguments}
 
         for line in response.iter_lines():
             if not line:
                 continue
-            
+
             line_text = line.decode('utf-8')
             if line_text.startswith("data: "):
                 data_str = line_text[len("data: "):]
-                
+
                 if data_str.strip() == "[DONE]":
                     break
-                    
+
                 try:
                     data_json = json.loads(data_str)
                     choices = data_json.get("choices", [])
                     if choices:
                         delta = choices[0].get("delta", {})
+
+                        # Akumulasi tool_calls (datang sebagai fragmen per index).
+                        for tc in (delta.get("tool_calls") or []):
+                            idx = tc.get("index", 0)
+                            acc = tool_acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                            if tc.get("id"):
+                                acc["id"] = tc["id"]
+                            fn = tc.get("function") or {}
+                            if fn.get("name"):
+                                acc["name"] = fn["name"]
+                            if fn.get("arguments"):
+                                acc["arguments"] += fn["arguments"]
+
                         content = delta.get("content", "")
-                        
                         if content:
                             # Cetak raw token ke terminal untuk visualisasi real-time
                             print(content, end='', flush=True)
-                            
+
                             current_sentence.append(content)
-                            
+
                             # Jika menemukan tanda baca akhir kalimat
                             if any(p in content for p in punctuation_marks):
                                 chunk_text = "".join(current_sentence).strip()
@@ -96,6 +118,13 @@ class LLMClient:
                                 current_sentence = []
                 except json.JSONDecodeError:
                     continue
+
+        # Serahkan tool_calls yang terdeteksi ke pemanggil (bila ada).
+        if tool_calls_out is not None and tool_acc:
+            for idx in sorted(tool_acc):
+                a = tool_acc[idx]
+                if a["name"]:
+                    tool_calls_out.append({"id": a["id"], "name": a["name"], "arguments": a["arguments"]})
 
         # Proses sisa teks yang belum terbaca/ter-yield
         if current_sentence:

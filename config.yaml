@@ -14,10 +14,10 @@ llm:
   # (atau endpoint OpenAI-compatible lain seperti Ollama). JANGAN hard-code di kode.
   model: "google/gemma-4-e2b"
   temperature: 0.7
-  max_tokens: 5120
+  max_tokens: 8000
   # Matikan mode "thinking/reasoning" (mis. Qwen3). Tanpa ini, reasoning bisa menghabiskan
   # token sehingga jawaban kosong, dan jauh lebih lambat. Set false bila ingin reasoning.
-  disable_thinking: true
+  disable_thinking: false
 
 stt:
   # Berjalan di CPU AMD Ryzen 8500G
