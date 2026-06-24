@@ -2,14 +2,20 @@
 
 Sebuah asisten AI lokal modular yang dirancang untuk berinteraksi menggunakan Bahasa Indonesia. Sistem ini mengintegrasikan berbagai model AI secara efisien pada resource lokal (CPU & GPU) mulai dari pemrosesan suara, penglihatan (vision), hingga memori jangka panjang.
 
+> **Status:** Tahap A (local-first) selesai — otak penuh berjalan dengan mic/speaker PC.
+> Tahap B (robot ESP32 via WebSocket) menyusul saat hardware siap. Detail arsitektur:
+> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) & [docs/MODULE_MAP.md](docs/MODULE_MAP.md).
+
 ## 🌟 Fitur Utama
 
-- **🧠 Pemrosesan Bahasa Alami (LLM):** Mengandalkan koneksi ke **LM Studio** lokal (dioptimalkan untuk GPU seperti Intel Arc via port 1234) untuk melakukan inferensi yang cepat dan aman tanpa harus mengirim data ke cloud.
-- **🗣️ Speech-to-Text (STT):** Menggunakan **Faster-Whisper** (`base` model, `int8` compute) yang berjalan sangat ringan di CPU untuk transkripsi suara ke teks secara real-time dengan akurasi tinggi pada Bahasa Indonesia.
-- **🔊 Text-to-Speech (TTS):** Menggunakan **Edge TTS** dari Microsoft untuk menghasilkan suara Bahasa Indonesia yang natural (`id-ID-GadisNeural`).
-- **👁️ Vision Processing (Image to Text):** Terintegrasi dengan **Moondream2** (`vikhyatk/moondream2`) yang siap menjelaskan gambar dan melihat lingkungan (saat ini berjalan di CPU/iGPU).
-- **📚 Memori Jangka Panjang (RAG):** Menggunakan **ChromaDB** sebagai vektor database untuk menyimpan fakta tentang pengguna. Sistem akan menarik konteks secara otomatis pada percakapan selanjutnya.
-- **🔄 Sliding Window Memory:** Mampu mengingat 10 alur percakapan terakhir agar obrolan tetap relevan tanpa menghabiskan batasan _context window_ pada LLM.
+- **🧠 LLM (LM Studio):** inferensi lokal via LM Studio (`:1234`), model-agnostik (ganti di `config.yaml`). Dukungan **tool-calling** & auto-matikan "thinking" (Qwen) agar cepat.
+- **🗣️ STT (Faster-Whisper):** `cahya/faster-whisper-medium-id`, CPU/int8. `capture()` & `transcribe()` terpisah (siap untuk sumber audio lain).
+- **🔊 TTS lokal (swappable):** `mms` (MMS-TTS Indonesia, default, 100% offline), `f5_indo` (voice cloning), `edge` (legacy cloud). Dipilih di `config.yaml → tts.engine`.
+- **🎭 Orchestrator + kontrak I/O:** otak (STT→memori→LLM→TTS) terpisah dari sumber/tujuan suara lewat `AudioSource`/`AudioSink`/`FeedbackSink` — robot tinggal "dicolok" nanti.
+- **⚡ Streaming & filler:** jawaban diucapkan **per kalimat** sambil LLM lanjut generate; filler suara ("Hmm") menutup jeda.
+- **🛠️ Lapisan aksi (tools):** `get_waktu`, `cari_memori`, `ingat_profil` (plug-in, mudah ditambah).
+- **📚 Memori berlapis:** kerja (ringkasan + recursive summarization), **RAG** (ChromaDB), **profil terstruktur** (selalu diingat), dan **episodic log** (JSONL tiap giliran).
+- **🧹 Reset:** `python reset_memory.py` untuk factory reset semua memori.
 
 ## 🛠️ Prasyarat & Instalasi
 
@@ -59,25 +65,25 @@ Bicaralah secara langsung ke mikrofon. Asisten akan menanggapi ucapan Anda secar
 
 Anda dapat mengatur berbagai parameter sistem secara fleksibel di dalam file `config.yaml`. Beberapa pengaturan penting meliputi:
 
-- URL & API Key untuk LLM (Default: `http://localhost:1234/v1`).
-- Pengaturan perangkat dan tipe komputasi (`cpu`, `int8`, dll) untuk modul STT dan Vision.
-- Pemilihan suara _Edge TTS_ (`id-ID-GadisNeural` atau `id-ID-ArdiNeural`).
-- Direktori penyimpanan untuk _Vector Database_.
+- LLM: `api_base_url`, `model` (sesuai yang dimuat di LM Studio), `disable_thinking`.
+- STT: `model`/`local_dir`, `device`, `compute_type`, `cpu_threads`, `beam_size`.
+- TTS: `engine` (`mms` / `f5_indo` / `edge`) + setelan tiap engine.
+- Memory: `persist_directory` (ChromaDB), `embedding_model`.
 
 ## 📂 Struktur Direktori Utama
 
-- `main.py` - Script utama pengendali alur (Router STT -> RAG -> LLM -> TTS).
-- `config.yaml` - File konfigurasi global.
-- `requirements.txt` - Daftar paket dan dependensi yang digunakan proyek.
-- `modules/` - Direktori arsitektur micro-services:
-  - `llm_client.py`: Integrasi streaming API Language Model.
-  - `memory_engine.py`: ChromaDB Vector store untuk memori persisten.
-  - `memory_rag.py`: (Opsional) Layer RAG untuk pemrosesan teks.
-  - `router.py`: Routing _intent_ atau tugas.
-  - `stt_engine.py`: Transkripsi suara (Faster-Whisper).
-  - `tts_engine.py`: Pembangkitan suara natural (Edge TTS).
-  - `vision_engine.py`: Pemahaman gambar (Moondream2).
-- `test_stt.py` - Script untuk mengetes fungsi mikrofon & rekaman.
+- `main.py` - Perakit tipis: rakit modul → `LocalIO` → `Orchestrator` → `run()`.
+- `config.yaml` - Konfigurasi global. · `reset_memory.py` - Factory reset memori.
+- `modules/`:
+  - `orchestrator.py`: otak (loop, memori, tool-loop, streaming, episodic).
+  - `io_contracts.py` / `local_io.py`: kontrak I/O & implementasi mic/speaker PC.
+  - `stt_engine.py` (Faster-Whisper) · `llm_client.py` (LM Studio + tools).
+  - `tts_factory.py` → `tts_mms.py` / `tts_f5.py` / `tts_engine.py` (Edge).
+  - `tool_registry.py`: lapisan aksi (tools).
+  - `memory_engine.py` (RAG) · `profile_store.py` (profil) · `episodic_log.py` (log).
+  - `model_paths.py`: resolver model lokal → repo-id.
+  - _Dead code (Tahap B / lama):_ `vision_engine.py`, `router.py`, `memory_rag.py`.
+- `docs/` - Dokumentasi arsitektur. · `models/`, `voices/` - aset lokal (lihat README masing-masing).
 
 ---
 

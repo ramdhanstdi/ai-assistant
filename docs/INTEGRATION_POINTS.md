@@ -1,5 +1,18 @@
 # INTEGRATION POINTS
 
+> **STATUS: Tahap A (local-first) SELESAI.** Banyak "titik integrasi" di bawah kini sudah
+> diimplementasi. Untuk gambaran arsitektur terkini lihat `ARCHITECTURE.md` & `MODULE_MAP.md`.
+> Yang tersisa = **Tahap B (butuh hardware ESP32):**
+> - `RobotIO` (WebSocket + HTTP audio server) sebagai `AudioSource`/`AudioSink` kedua.
+> - `FeedbackSink` → kirim `state` ke ESP32 (wajah/cue) — kontraknya sudah ada (`LocalFeedbackSink` print).
+> - Sensor (presence/imu/distance) → konteks LLM + perilaku reaktif.
+> - Vision (ESP32-CAM) → hidupkan `vision_engine` / VLM.
+>
+> Sudah selesai di Tahap A: abstraksi I/O (`io_contracts`+`local_io`), Orchestrator, tool-calling
+> (`tool_registry`), streaming TTS, memori (kerja/RAG/profil), episodic logging, feedback state (print).
+>
+> Bagian historis di bawah (rencana Fase 1/2) dipertahankan sebagai konteks.
+
 Titik tempat kode Fase 2 (abstraksi I/O, WebSocket/HTTP server, tool-calling, feedback/state)
 akan menyambung. Mengacu ke target arsitektur di `PLANNING_PC.md` dan protokol
 `PLANNING_FIRMWARE_ESP32.md`.

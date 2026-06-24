@@ -1,94 +1,95 @@
-# ARCHITECTURE — AI Assistant Lokal (STT → LLM → TTS)
+# ARCHITECTURE — AI Assistant Lokal (Jarvis local-first)
 
-> Dokumen ini awalnya hasil **Fase Discovery**. **Diperbarui di Fase 2** (branch
-> `feature/orchestrator-local-first`) untuk mencerminkan TTS lokal swappable. Bagian yang
-> berubah ditandai inline.
+> Status: **Tahap A (local-first) selesai (Langkah 1–7).** Dokumen ini mencerminkan
+> arsitektur saat ini. Tahap B (RobotIO/ESP32) belum ada — menunggu hardware.
 
 ## 1. Ringkasan
 
-Aplikasi adalah **voice assistant lokal berbasis CLI** dengan satu loop percakapan sinkron:
+Voice assistant lokal: audio (mic PC) → STT → memori/RAG → LLM (+ tool-calling) → TTS → speaker PC.
+**Otak terpisah dari sumber/tujuan suara** lewat kontrak I/O, sehingga robot (ESP32) nanti cukup
+"dicolok" tanpa mengubah otak. Semua model lokal/offline kecuali LLM yang dilayani **LM Studio**.
 
-```
-mic PC → STT (faster-whisper) → memori + RAG → LLM (LM Studio) → TTS (Edge TTS) → speaker PC
-```
+Entry point: [`main.py`](../main.py) — perakit tipis. Dijalankan `python main.py`.
 
-Entry point tunggal: [`main.py`](../main.py), fungsi `main()`. Dijalankan dengan `python main.py`.
-Tidak ada server, tidak ada API, tidak ada antarmuka jaringan. Semua dikendalikan dari satu
-proses dan satu thread (kecuali `asyncio.run` internal milik TTS).
-
-## 2. Diagram alur data
+## 2. Diagram alur (per giliran)
 
 ```mermaid
 flowchart TD
-    subgraph PC["Proses tunggal (python main.py)"]
-        MIC["🎙️ Mic PC<br/>(SpeechRecognition + PyAudio)"]
-        STT["STTManager.listen_and_transcribe()<br/>faster-whisper 'cahya/faster-whisper-medium-id'<br/>CPU / int8 / lang=id"]
-        STOP{"kata stop?<br/>(berhenti/keluar/..)"}
-        FACT{"kata kunci fakta?<br/>(namaku/saya suka/..)"}
-        SAVE["VectorDBManager.save_fact()<br/>ChromaDB upsert"]
-        HIST["messages[] (working memory)<br/>+ recursive summarization (>12)"]
-        RAG["VectorDBManager.search_context()<br/>ChromaDB top-2 → system msg"]
-        LLM["LLMClient.stream_response()<br/>LM Studio OpenAI-compat :1234<br/>model dari config (llm.model)<br/>yield potongan kalimat"]
-        COLLECT["Kumpulkan SEMUA chunk<br/>→ full_response_text"]
-        TTS["get_tts_manager().stream_tts([full_text])<br/>engine dari config (mms|f5_indo|edge)<br/>default mms: MMS-TTS lokal → sounddevice"]
-        SPK["🔊 Speaker PC"]
-        MEMJSON["memory.json<br/>(summary + history[-10])"]
+    MIC["🎙️ Mic PC"] --> SRC["LocalMicSource.read()\n(AudioSource)"]
+    SRC --> STT["STTManager.transcribe()\nfaster-whisper (CPU/int8)"]
+    STT --> TXT{teks kosong?}
+    TXT -- ya --> IDLE["state: idle → ulang"]
+    TXT -- tidak --> STOP{stop-word?\n(berhenti/keluar/..)}
+    STOP -- ya --> SHUT["_shutdown: ringkas → memory.json\n+ filler 'rangkum dulu' → pamit"]
+    STOP -- tidak --> TURN["_handle_turn"]
+
+    subgraph TURN_DETAIL["_handle_turn (Orchestrator)"]
+        FACT["fakta→vectordb + ekstraksi nama→profil"]
+        APPEND["append user; kompresi bila >12 (filler)"]
+        BUILD["working = messages + PROFIL + RAG"]
+        LOOP["TOOL-LOOP: stream LLM (with tools)"]
+        TOOLS{tool_calls?}
+        EXEC["eksekusi tool → hasil ke working"]
+        ANSWER["content → TTS streaming per kalimat\n(producer-consumer) + filler 'Hmm' paralel"]
+        LOG["save memory.json + episodic log"]
     end
 
-    MIC --> STT --> STOP
-    STOP -- ya --> EXIT["summarize → memory.json → TTS pamit → exit"]
-    STOP -- tidak --> FACT
-    FACT -- ya --> SAVE
-    FACT -- tidak --> HIST
-    SAVE --> HIST
-    HIST --> RAG --> LLM --> COLLECT --> TTS --> SPK
-    COLLECT --> MEMJSON
-    LLM -.->|baca konteks| RAG
+    TURN --> FACT --> APPEND --> BUILD --> LOOP --> TOOLS
+    TOOLS -- ya --> EXEC --> LOOP
+    TOOLS -- tidak --> ANSWER --> LOG
+    ANSWER --> SINK["LocalSpeakerSink.speak_stream()\n(AudioSink)"] --> SPK["🔊 Speaker PC"]
+    LLMSRV["LM Studio :1234\n(model dari config, disable_thinking)"] -. HTTP stream .- LOOP
 ```
 
-## 3. Tahapan loop (detail di `main.py`)
+## 3. Kontrak I/O (inti pemisahan otak ↔ perangkat)
 
-| # | Tahap | Lokasi | Catatan |
-|---|-------|--------|---------|
-| A | Dengar + transkrip | `main.py:105` → `stt_engine.py` | Blocking. Endpoint = keheningan (silence), bukan VAD streaming. `adjust_for_ambient_noise(0.5s)` tiap loop. |
-| — | Cek stop-word | `main.py:113` | Substring match kasar. |
-| — | Simpan fakta | `main.py:131-132` | Heuristik keyword (`namaku`, `saya suka`, ...). |
-| — | Append working memory | `main.py:135` | `messages[]` in-memory. |
-| — | Recursive summarization | `main.py:138-160` | Jika `len(messages) > 12`, kompres bagian tengah jadi 2 kalimat via LLM. |
-| B | RAG retrieval | `main.py:163-169` | `search_context()` top-2, disuntik sebagai `system` message sementara. |
-| — | LLM streaming | `main.py:177-184` | `stream_response()` yield per-kalimat, **tapi semua dikumpulkan dulu**. |
-| C | TTS | `main.py:194` → `tts_factory.py` | `full_response_text` dikirim sebagai **satu chunk** ke engine TTS terpilih (jadi TIDAK ada streaming per-kalimat ke suara saat ini). Engine default `mms` (lokal); bisa `f5_indo`/`edge` via config. |
-| — | Persist | `main.py:197` | `save_memory()` → `memory.json`. |
+[`modules/io_contracts.py`](../modules/io_contracts.py):
+- `AudioSource.read() -> np.ndarray|None` — satu giliran audio user.
+- `AudioSink.speak(text)` / `speak_stream(iter)` — keluarkan suara respons.
+- `FeedbackSink.state(name)` — cue state (`listening/thinking/speaking/idle/confused`).
 
-## 4. Komponen & tanggung jawab
+Implementasi lokal [`modules/local_io.py`](../modules/local_io.py): `LocalMicSource` (bungkus
+`STTManager.capture`), `LocalSpeakerSink` (bungkus TTS), `LocalFeedbackSink` (print). Bundel `LocalIO`.
+RobotIO (Tahap B) = implementasi lain dari kontrak yang sama.
 
-- **Orchestrator** — `main.py` (`main()` loop). Mengikat semua modul. Tidak ada kelas; logika di prosedural loop.
-- **STT** — `modules/stt_engine.py` `STTManager`. Capture mic + transkrip digabung dalam satu metode.
-- **LLM** — `modules/llm_client.py` `LLMClient`. HTTP streaming ke LM Studio (OpenAI-compatible). Memecah token jadi potongan kalimat berdasarkan tanda baca.
-- **TTS** — dipilih lewat `modules/tts_factory.py` (`get_tts_manager()`) berdasarkan `config.yaml → tts.engine`. Semua engine berbagi interface `stream_tts`/`speak_chunk`:
-  - `mms` *(default)* — `modules/tts_mms.py` `MMSTTSManager`. MMS-TTS (VITS) Bahasa Indonesia, **lokal/offline**, Intel Arc (xpu) bila IPEX ada else CPU → sounddevice.
-  - `f5_indo` — `modules/tts_f5.py` `F5TTSManager`. F5-TTS finetune Indonesia, **voice cloning** dari sampel di `voices/`.
-  - `edge` *(legacy)* — `modules/tts_engine.py` `EdgeTTSManager`. Edge TTS (online) → mp3 sementara → pygame.
-- **Memori jangka panjang (RAG)** — `modules/memory_engine.py` `VectorDBManager`. ChromaDB persisten + embedding `all-MiniLM-L6-v2`. Koleksi `user_profile`.
-- **Memori kerja** — `messages[]` di `main.py` + `memory.json` (summary + 10 turn terakhir).
+## 4. Otak: Orchestrator + Session
 
-### Modul yang ADA tapi TIDAK terpakai (dead code saat ini)
-- `modules/router.py` `Router.identify_intent()` — routing intent (chat/vision/reset). Tidak dipanggil di `main.py`.
-- `modules/vision_engine.py` `VisionManager` — Moondream2 + webcam. Tidak dipanggil di `main.py`.
-- `modules/memory_rag.py` `MemoryManager` — sistem memori alternatif (koleksi `personal_memory`). Duplikat/menggantikan tidak terpakai.
-- `test_stt.py` — namanya STT, isinya **demo TTS**.
+[`modules/orchestrator.py`](../modules/orchestrator.py):
+- `Session(io, messages)` — state satu sesi.
+- `Orchestrator.run(session)` — loop: dengar → transcribe → stop? → `_handle_turn`.
+- `_handle_turn` — fakta→RAG, profil, kompresi memori, **tool-loop streaming**, episodic log.
+- Memori: `load_messages`/`save_messages`/`_compress_memory`/`_summarize_now`.
+- `_stream_round` — producer (LLM→antrian) + consumer (TTS `speak_stream`) = streaming per kalimat.
 
-## 5. Konfigurasi & lingkungan
+## 5. Komponen
 
-- `config.yaml` — sumber konfigurasi (LLM url+model, STT model/device/compute, vision, TTS engine+voice, memory path).
-- `data/vectordb/` — penyimpanan ChromaDB (gitignored via `data/`).
-- `memory.json` — memori percakapan persisten (root, **kini gitignored** sejak Fase 2).
-- `voices/` — sampel suara untuk voice cloning F5 (audio gitignored; lihat `voices/README.md`).
-- Dependensi: lihat `requirements.txt` (**diperbarui Fase 2 Langkah 0**).
-- Layanan eksternal: **LM Studio** harus jalan di `localhost:1234`. Engine `edge` butuh internet; engine `mms`/`f5_indo` 100% offline.
+| Lapisan | Modul | Catatan |
+|---------|-------|---------|
+| STT | `stt_engine.py` | `capture()` (mic) + `transcribe(audio)` (reusable RobotIO). |
+| LLM | `llm_client.py` | streaming + `tools`/`tool_calls_out`; `disable_thinking` (Qwen); override `max_tokens` per panggilan. |
+| TTS | `tts_factory.py` → `tts_mms` (default) / `tts_f5` (cloning) / `tts_engine` (Edge, legacy) | dipilih via `config.tts.engine`. |
+| Tools | `tool_registry.py` | `get_waktu`, `cari_memori`, `ingat_profil`. Tool-loop di orchestrator (maks 3 hop). |
+| Memori kerja | `messages[]` + `memory.json` | ringkasan + 10 turn terakhir; recursive summarization (>12). |
+| Memori RAG | `memory_engine.py` (ChromaDB) | episodik/semantik per-relevansi. |
+| Profil | `profile_store.py` (`data/profile.json`) | fakta stabil, **selalu disuntik**; tool `ingat_profil` + ekstraksi nama deterministik. |
+| Episodic | `episodic_log.py` (`data/episodes.jsonl`) | log tiap giliran (ts, user, assistant, tools, latency). Extensible. |
+| Path model | `model_paths.py` | folder lokal → fallback repo-id. |
+| Reset | `reset_memory.py` | factory reset semua memori. |
 
-## 6. Hardware mapping (sesuai komentar config & README)
-- STT → CPU (AMD Ryzen 8500G), int8.
-- LLM → GPU Intel Arc B580 via LM Studio.
-- Vision (jika diaktifkan) → CPU/iGPU.
-- TTS → **lokal** (default `mms`): Intel Arc (xpu) bila IPEX ada, else CPU. Engine `edge` = cloud Microsoft.
+## 6. Latensi (Langkah 4 + filler)
+
+- **Streaming TTS per kalimat**: kalimat pertama diucapkan tanpa menunggu jawaban utuh; generasi
+  LLM overlap dengan pemutaran (producer-consumer).
+- **Filler paralel**: "Hmm" saat berpikir, "aku ingat itu" saat kompresi, "rangkum dulu" saat keluar.
+- **Summary cepat**: kompresi/exit dipaksa 256 token + tanpa-thinking (~2× lebih cepat).
+
+## 7. Konfigurasi & data
+
+- `config.yaml` — LLM (url/model/disable_thinking), STT, TTS engine, vision, memory.
+- Gitignored (data pribadi): `memory.json`, `data/` (vectordb, profile.json, episodes.jsonl),
+  `voices/*.wav`, `models/` (bobot besar).
+- Eksternal: **LM Studio** di `localhost:1234`. Engine TTS `mms`/`f5_indo` 100% offline.
+
+## 8. Hardware mapping
+- STT → CPU (Ryzen). LLM → Intel Arc via LM Studio. TTS lokal (`mms`) → CPU (torch CPU build).
+- Tahap B (nanti): ESP32 sebagai `AudioSource`/`Sink` kedua; sensor; ESP32-CAM untuk vision.

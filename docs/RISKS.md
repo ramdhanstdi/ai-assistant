@@ -6,6 +6,15 @@ Ditemukan saat Fase Discovery. Diurut kira-kira dari paling berdampak.
 > ditangani saat Langkah 0 + swap TTS lokal. Item yang beres ditandai **✅ RESOLVED** dengan
 > tanggal/cara perbaikannya; temuan asli tetap dicatat sebagai konteks historis.
 
+> **Pembaruan Tahap A selesai (Langkah 1–7):** tambahan yang sudah beres —
+> - ✅ Loop dipindah dari `main.py` ke `Orchestrator` (tak lagi monolitik); `main.py` tipis.
+> - ✅ Streaming LLM→TTS per kalimat (latensi); filler paralel saat berpikir/kompresi/exit.
+> - ✅ Model LLM/STT/embedding lewat config + resolver folder lokal.
+> - ✅ Kompatibilitas template Qwen: ringkasan dikemas 1 pesan `user`; tool-call omit `content=""`.
+> - ✅ Memori: profil terstruktur + episodic log + `reset_memory.py`.
+> - ⚠️ Masih: keyword fact-save kasar; RAG top-2 tanpa ambang; `id=time.time()` bisa tabrakan;
+>   pin versi sebagian masih lama; vision/router/memory_rag masih dead code.
+
 ## A. Dependensi (`requirements.txt`) tidak sinkron dengan kode — ✅ RESOLVED (Fase 2, Langkah 0)
 `requirements.txt` sudah dirombak agar sesuai import nyata: ditambah `PyAudio`, `numpy`,
 `sentence-transformers`, `soundfile`, `scipy`, `sounddevice`, `transformers`, `torch`; `edge-tts`
