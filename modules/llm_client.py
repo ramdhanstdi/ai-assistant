@@ -30,19 +30,23 @@ class LLMClient:
         self.endpoint = f"{base_url}/chat/completions"
 
     def stream_response(self, messages: List[Dict[str, str]], model: str = None,
-                        tools=None, tool_calls_out=None) -> Generator[str, None, None]:
+                        tools=None, tool_calls_out=None,
+                        max_tokens: int = None, disable_thinking: bool = None) -> Generator[str, None, None]:
         """
         Streaming respons LLM; yield potongan kalimat (content) berdasarkan tanda baca.
 
-        tools          : daftar schema function-calling (opsional). Bila model memutuskan
-                         memanggil tool, ia mengirim tool_calls (bukan content).
-        tool_calls_out : list opsional; bila diberikan, tool_calls yang terdeteksi di stream
-                         di-append ke sini sebagai dict {id, name, arguments}. Pemanggil cek
-                         list ini setelah generator habis untuk tahu apakah ada panggilan tool.
+        tools            : daftar schema function-calling (opsional). Bila model memutuskan
+                           memanggil tool, ia mengirim tool_calls (bukan content).
+        tool_calls_out   : list opsional; bila diberikan, tool_calls yang terdeteksi di stream
+                           di-append ke sini sebagai dict {id, name, arguments}.
+        max_tokens       : override batas token untuk panggilan ini (mis. ringkasan singkat).
+        disable_thinking : override on/off reasoning untuk panggilan ini (mis. paksa cepat).
         """
         # Default ke model dari config bila pemanggil tidak menentukan.
         if model is None:
             model = self.model
+        eff_max_tokens = self.max_tokens if max_tokens is None else max_tokens
+        eff_disable_thinking = self.disable_thinking if disable_thinking is None else disable_thinking
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -54,12 +58,12 @@ class LLMClient:
             "messages": messages,
             "stream": True,
             "temperature": self.temperature,
-            "max_tokens": self.max_tokens
+            "max_tokens": eff_max_tokens
         }
         if tools:
             payload["tools"] = tools
         # Nonaktifkan thinking pada model reasoning (Qwen3 dll) lewat template kwargs.
-        if self.disable_thinking:
+        if eff_disable_thinking:
             payload["chat_template_kwargs"] = {"enable_thinking": False}
 
         try:

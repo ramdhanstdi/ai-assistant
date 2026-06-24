@@ -58,6 +58,14 @@ def _cari_memori(ctx, query: str):
     return hasil if hasil else "Tidak ada yang relevan di memori."
 
 
+def _ingat_profil(ctx, kunci: str, nilai: str):
+    """Simpan fakta stabil user ke profil terstruktur (mis. nama, kota, preferensi)."""
+    if ctx is None or getattr(ctx, "profile", None) is None:
+        return "Profil tidak tersedia."
+    ctx.profile.set(kunci, nilai)
+    return f"Tersimpan ke profil: {kunci} = {nilai}"
+
+
 def build_default_registry(context):
     """Bangun registry berisi tool bawaan. `context` butuh atribut .vectordb."""
     reg = ToolRegistry(context)
@@ -74,5 +82,16 @@ def build_default_registry(context):
          "properties": {"query": {"type": "string", "description": "kata kunci yang dicari"}},
          "required": ["query"]},
         _cari_memori,
+    )
+    reg.add(
+        "ingat_profil",
+        "Simpan fakta stabil & penting tentang user agar diingat lintas sesi "
+        "(mis. nama, kota tinggal, preferensi). Pakai saat user memberi info pribadi yang layak diingat.",
+        {"type": "object",
+         "properties": {
+             "kunci": {"type": "string", "description": "label fakta, mis. 'nama', 'kota', 'minuman_favorit'"},
+             "nilai": {"type": "string", "description": "isi faktanya, mis. 'Ramdhan', 'Bandung', 'kopi'"}},
+         "required": ["kunci", "nilai"]},
+        _ingat_profil,
     )
     return reg

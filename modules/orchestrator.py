@@ -7,6 +7,7 @@ sekarang dan RobotIO (ESP32) nanti bisa ditukar tanpa mengubah orchestrator.
 """
 import json
 import os
+import re
 import time
 import types
 import queue
@@ -14,6 +15,7 @@ import asyncio
 import threading
 
 from modules.tool_registry import build_default_registry
+from modules.profile_store import ProfileStore
 
 
 class Session:
@@ -27,8 +29,16 @@ class Session:
 class Orchestrator:
     STOP_WORDS = ['berhenti', 'keluar', 'matikan', 'tutup', 'exit']
     FACT_WORDS = ['namaku', 'saya adalah', 'saya suka', 'aku tinggal']
-    FILLER_TEXT = "Hmmmmm,"
-    MAX_TOOL_HOPS = 3  # batas iterasi tool-calling agar tidak loop tak hingga
+    FILLER_TEXT = "Mmmmmmmmmmmmmmm!"
+    COMPRESS_FILLER = "Sebentar, aku mau menyimpan ingatan dulu."
+    EXIT_FILLER = "Oke, aku rangkum dulu sebentar ya."
+    MAX_TOOL_HOPS = 3        # batas iterasi tool-calling agar tidak loop tak hingga
+    SUMMARY_MAX_TOKENS = 256  # ringkasan singkat -> cepat (tak perlu token besar)
+
+    # Ekstraksi nama deterministik (fallback andal; tool ingat_profil tetap untuk model mampu).
+    _NAME_RE = re.compile(r"\bnama(?:ku)?\s*(?:saya|aku)?\s*(?:adalah\s+)?([a-zA-Z][a-zA-Z'\-]+)", re.IGNORECASE)
+    _NAME_STOP = {"dan", "aku", "saya", "apa", "siapa", "itu", "adalah", "ku", "kamu", "kita", "yang"}
+    _QUESTION_STARTS = ("siapa", "apa", "kenapa", "gimana", "bagaimana", "apakah", "mengapa")
 
     def __init__(self, stt, llm, vectordb, system_prompt,
                  max_history_turns: int = 12, memory_file: str = "memory.json"):
@@ -38,8 +48,11 @@ class Orchestrator:
         self.system_prompt = system_prompt
         self.max_history_turns = max_history_turns
         self.memory_file = memory_file
-        # Lapisan aksi: registry tool. Context memberi tool akses ke komponen otak (vectordb).
-        self.tools = build_default_registry(types.SimpleNamespace(vectordb=vectordb))
+        # Memori profil terstruktur (fakta stabil user, selalu disuntik ke konteks).
+        self.profile = ProfileStore()
+        # Lapisan aksi: registry tool. Context memberi tool akses ke komponen otak.
+        self.tools = build_default_registry(
+            types.SimpleNamespace(vectordb=vectordb, profile=self.profile))
 
     # ===================== Memori persisten =====================
     def load_messages(self):
@@ -76,13 +89,16 @@ class Orchestrator:
             pass
 
     async def _summarize_now(self, messages):
-        summary_prompt = ("Summarize the entire conversation so far in 3-5 concise sentences. "
-                          "Focus on user preferences, facts mentioned, and current topics. "
-                          "Output ONLY the summary.")
-        temp_msgs = list(messages)
-        temp_msgs.append({"role": "system", "content": summary_prompt})
+        # Percakapan dikemas sebagai SATU pesan 'user' (lihat _compress_memory) agar aman
+        # untuk template chat semua model.
+        convo = "\n".join(f"{m.get('role')}: {m.get('content', '')}"
+                          for m in messages if m.get("content") and m.get("role") in ("user", "assistant"))
+        prompt = ("Summarize the conversation below in 3-5 concise sentences. Focus on user "
+                  "preferences, facts mentioned, and current topics. Output ONLY the summary.\n\n" + convo)
+        temp_msgs = [{"role": "user", "content": prompt}]
         parts = []
-        for chunk in self.llm.stream_response(temp_msgs):
+        for chunk in self.llm.stream_response(temp_msgs,
+                                              max_tokens=self.SUMMARY_MAX_TOKENS, disable_thinking=True):
             parts.append(chunk)
         return "".join(parts).strip()
 
@@ -119,6 +135,9 @@ class Orchestrator:
     def _shutdown(self, session: Session):
         """Saat user minta berhenti: ringkas percakapan, simpan, pamit lewat suara."""
         print("⏳ Generating summary before exit...")
+        # Filler paralel agar exit tak terasa hening saat merangkum.
+        sfiller = threading.Thread(target=session.io.sink.speak, args=(self.EXIT_FILLER,), daemon=True)
+        sfiller.start()
         try:
             summary_text = asyncio.run(self._summarize_now(session.messages))
             history_slice = session.messages[-5:]
@@ -128,6 +147,7 @@ class Orchestrator:
                 json.dump({"summary": summary_text, "history": history_slice}, f, indent=4)
         except Exception as e:
             print(f"❌ Error saat menyimpan summary: {e}")
+        sfiller.join()
 
         print("🛑 Mematikan sistem. Sampai jumpa!")
         session.io.sink.speak("Yaudah, saya matikan sistemnya. ADIOS!")
@@ -147,12 +167,19 @@ class Orchestrator:
         if any(kata in user_text.lower() for kata in self.FACT_WORDS):
             self.vectordb.save_fact(text=user_text, id=str(time.time()))
 
+        # Ekstraksi profil terstruktur deterministik (mis. nama) — tidak bergantung model.
+        self._extract_profile(user_text)
+
         messages.append({"role": "user", "content": user_text})
 
-        # Recursive summarization bila riwayat terlalu panjang
+        # Recursive summarization bila riwayat terlalu panjang.
+        # Putar filler "Oke, aku ingat itu ya." paralel agar tak terasa hening saat kompresi.
         if len(messages) > self.max_history_turns:
+            cfiller = threading.Thread(target=session.io.sink.speak, args=(self.COMPRESS_FILLER,), daemon=True)
+            cfiller.start()
             messages = self._compress_memory(messages)
             session.messages = messages
+            cfiller.join()
 
         # Konteks kerja untuk ronde-ronde LLM (RAG + tempat menaruh hasil tool). Tidak dipersist.
         working = self._build_with_rag(messages, user_text)
@@ -172,13 +199,17 @@ class Orchestrator:
 
             if tool_calls and hop < self.MAX_TOOL_HOPS:
                 # Catat niat memanggil tool + hasil eksekusinya ke konteks kerja.
-                working.append({
+                # PENTING: jangan sertakan content="" (string kosong) — sebagian template
+                # (Qwen) jadi membalas kosong di ronde berikutnya. Omit content bila kosong.
+                assistant_msg = {
                     "role": "assistant",
-                    "content": text or "",
                     "tool_calls": [{"id": tc["id"], "type": "function",
                                     "function": {"name": tc["name"], "arguments": tc["arguments"]}}
                                    for tc in tool_calls],
-                })
+                }
+                if text:
+                    assistant_msg["content"] = text
+                working.append(assistant_msg)
                 for tc in tool_calls:
                     try:
                         args = json.loads(tc["arguments"] or "{}")
@@ -240,15 +271,21 @@ class Orchestrator:
     def _compress_memory(self, messages):
         """Kompres bagian tengah riwayat jadi 2 kalimat ringkasan (recursive summarization)."""
         middle_messages = messages[1:-3]
-        summary_temp = list(middle_messages)
-        summary_temp.append({
-            "role": "system",
-            "content": "Rangkum percakapan ini menjadi 2 kalimat padat yang berisi fakta kunci tentang user dan topik bahasan. Jangan bertele-tele."
-        })
+        # Kirim percakapan sebagai SATU pesan 'user' berisi teks. Ini menghindari error
+        # template chat (mis. Qwen menolak bila tak ada pesan user atau mulai dgn assistant).
+        convo = "\n".join(f"{m.get('role')}: {m.get('content', '')}"
+                          for m in middle_messages if m.get("content"))
+        summary_temp = [{
+            "role": "user",
+            "content": ("Rangkum percakapan berikut menjadi 2 kalimat padat berisi fakta kunci "
+                        "tentang user dan topik. Jangan bertele-tele.\n\n" + convo)
+        }]
 
         print("🔄 Mengkompresi memori (Recursive Summarization)...")
         summary_parts = []
-        for chunk in self.llm.stream_response(summary_temp):
+        # Paksa cepat: token kecil + tanpa reasoning (apa pun setelan global).
+        for chunk in self.llm.stream_response(summary_temp,
+                                              max_tokens=self.SUMMARY_MAX_TOKENS, disable_thinking=True):
             summary_parts.append(chunk)
         new_summary_text = "".join(summary_parts).strip()
 
@@ -258,10 +295,36 @@ class Orchestrator:
         self.save_messages(messages)
         return messages
 
+    def _extract_profile(self, user_text: str):
+        """Ekstrak fakta profil stabil (nama) dari ucapan user, lalu simpan ke ProfileStore.
+        Lewati pertanyaan agar tidak salah tangkap (mis. 'siapa namaku?')."""
+        low = user_text.strip().lower()
+        if "?" in user_text or low.startswith(self._QUESTION_STARTS):
+            return
+        m = self._NAME_RE.search(user_text)
+        if m:
+            name = m.group(1).strip()
+            if len(name) >= 2 and name.lower() not in self._NAME_STOP:
+                self.profile.set("nama", name.title())
+                print(f"   [profil: nama = {name.title()}]")
+
     def _build_with_rag(self, messages, user_text):
-        """Kembalikan salinan messages dengan konteks RAG disisipkan (bila ada)."""
-        context = self.vectordb.search_context(user_text)
+        """
+        Kembalikan salinan messages dengan profil terstruktur + konteks RAG disisipkan
+        (sebelum pesan user terakhir). Profil selalu disuntik; RAG hanya bila relevan.
+        """
         temp_messages = list(messages)
+
+        # Profil terstruktur (selalu tersedia, tanpa retrieval)
+        profil = self.profile.as_text()
+        if profil:
+            temp_messages.insert(-1, {
+                "role": "system",
+                "content": f"Profil user yang sudah diingat: {profil}. Gunakan bila relevan."
+            })
+
+        # Memori jangka panjang (RAG, berdasarkan relevansi query)
+        context = self.vectordb.search_context(user_text)
         if context:
             temp_messages.insert(-1, {
                 "role": "system",

@@ -35,7 +35,10 @@ DEFAULT_SYSTEM_PROMPT = {
         "3) Tulis kalimat yang utuh dan wajar; jangan huruf kecil semua dan jangan singkatan aneh. "
         "Tetap RINGKAS dan padat: cukup 1 sampai 3 kalimat pendek yang natural. "
         "Jangan bertele-tele dan jangan membuat daftar berpoin, KECUALI user secara eksplisit "
-        "memakai kata 'jelaskan', 'ceritakan', atau meminta penjelasan lebih detail."
+        "memakai kata 'jelaskan', 'ceritakan', atau meminta penjelasan lebih detail. "
+        "PENTING soal memori: bila user menyebut informasi pribadi yang stabil dan layak diingat "
+        "(nama, kota/asal, pekerjaan, atau preferensi/kesukaan), SEGERA panggil tool 'ingat_profil' "
+        "untuk menyimpannya (satu panggilan per fakta), baru lanjut menjawab dengan ramah."
     )
 }
 
