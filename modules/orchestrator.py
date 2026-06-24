@@ -16,6 +16,7 @@ import threading
 
 from modules.tool_registry import build_default_registry
 from modules.profile_store import ProfileStore
+from modules.episodic_log import EpisodicLogger
 
 
 class Session:
@@ -50,6 +51,8 @@ class Orchestrator:
         self.memory_file = memory_file
         # Memori profil terstruktur (fakta stabil user, selalu disuntik ke konteks).
         self.profile = ProfileStore()
+        # Episodic log: catat tiap giliran (fondasi analisis/pembelajaran nanti).
+        self.episodes = EpisodicLogger()
         # Lapisan aksi: registry tool. Context memberi tool akses ke komponen otak.
         self.tools = build_default_registry(
             types.SimpleNamespace(vectordb=vectordb, profile=self.profile))
@@ -162,6 +165,8 @@ class Orchestrator:
         mempertahankan streaming per kalimat dari Langkah 4).
         """
         messages = session.messages
+        t_start = time.time()
+        tools_used = []  # dicatat ke episodic log di akhir giliran
 
         # Simpan fakta ke memori jangka panjang (heuristik kata kunci)
         if any(kata in user_text.lower() for kata in self.FACT_WORDS):
@@ -217,6 +222,7 @@ class Orchestrator:
                         args = {}
                     result = self.tools.execute(tc["name"], args)
                     print(f"   [tool: {tc['name']}({args}) -> {result[:80]}]")
+                    tools_used.append({"name": tc["name"], "args": args, "result": result})
                     working.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
                 continue  # ronde berikutnya: stream jawaban memakai hasil tool
 
@@ -226,6 +232,15 @@ class Orchestrator:
         session.io.feedback.state("idle")
         messages.append({"role": "assistant", "content": final_text})
         self.save_messages(messages)
+
+        # Catat episode (skema extensible — nanti bisa +state sensor/aksi robot).
+        self.episodes.log(
+            type="conversation",
+            user=user_text,
+            assistant=final_text,
+            tools=tools_used,
+            latency_s=round(time.time() - t_start, 2),
+        )
         print()
 
     def _stream_round(self, session: Session, working, tools=None, pre_speak=None):

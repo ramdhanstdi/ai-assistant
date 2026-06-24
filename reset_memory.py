@@ -2,9 +2,10 @@
 reset_memory.py — RESET PABRIK memori asisten.
 
 Menghapus SEMUA memori sehingga asisten mulai dari nol:
-  - memory.json        : memori kerja (ringkasan + percakapan terakhir)
-  - data/profile.json  : profil terstruktur (nama, preferensi)
-  - data/vectordb/     : memori jangka panjang RAG (ChromaDB)
+  - memory.json          : memori kerja (ringkasan + percakapan terakhir)
+  - data/profile.json    : profil terstruktur (nama, preferensi)
+  - data/vectordb/       : memori jangka panjang RAG (ChromaDB)
+  - data/episodes.jsonl  : catatan episodik (log tiap giliran)
 
 Pakai:
   python reset_memory.py          # tanya konfirmasi dulu
@@ -43,6 +44,7 @@ def main():
         ("Memori kerja (percakapan)", "memory.json", "file"),
         ("Profil terstruktur (nama/preferensi)", "data/profile.json", "file"),
         ("Memori jangka panjang RAG (ChromaDB)", vectordb_dir, "dir"),
+        ("Catatan episodik (log tiap giliran)", "data/episodes.jsonl", "file"),
     ]
 
     print("=" * 56)
