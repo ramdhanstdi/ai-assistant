@@ -13,7 +13,7 @@ try:
 except Exception:
     pass
 
-from modules.stt_engine import STTManager
+from modules.stt_factory import get_stt_manager
 from modules.llm_client import LLMClient
 from modules.tts_factory import get_tts_manager
 from modules.memory_engine import VectorDBManager
@@ -50,8 +50,8 @@ def main():
 
     try:
         # 1. Inisialisasi semua modul (komponen otak)
-        print("[1/4] Memuat STT (Ryzen CPU)...")
-        stt = STTManager()
+        print("[1/4] Memuat STT (backend sesuai config.yaml -> stt.backend)...")
+        stt = get_stt_manager()
 
         print("[2/4] Memuat LLM Client (Koneksi ke Intel Arc)...")
         llm = LLMClient()
