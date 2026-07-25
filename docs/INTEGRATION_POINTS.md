@@ -35,9 +35,12 @@ Kontrak yang perlu diekstrak agar otak tidak peduli sumber suara.
 
 ## 2. STT — adaptasi stream/chunk
 
-- Fungsi transkrip inti: `stt_engine.py:59` `self.model.transcribe(audio_np, ...)`. Sudah menerima
-  numpy array, jadi siap dipakai RobotIO (PCM dari WebSocket → numpy → transcribe).
-- Yang mic-spesifik: `stt_engine.py:35-47` (`sr.Microphone`, `listen`). Ini hanya untuk LocalIO.
+- Fungsi transkrip inti: `STTManager.transcribe(audio_np)` di `stt_engine.py` (atau
+  `OVSTTManager.transcribe` di `stt_ov.py`). Sudah menerima numpy array float32 16 kHz, jadi
+  siap dipakai RobotIO (PCM dari WebSocket → numpy → transcribe). Backend dipilih lewat
+  `stt_factory.get_stt_manager()` — RobotIO tidak perlu peduli CPU atau Arc.
+- Yang mic-spesifik: `BaseSTT.capture()` di `stt_base.py` (`sr.Microphone`, `listen`). Ini hanya
+  untuk LocalIO; RobotIO tidak memakainya.
 - VAD: saat ini hanya `vad_filter=True` di whisper + silence-endpoint SpeechRecognition. Untuk
   RobotIO, endpoint datang dari sinyal `audio_end` ESP32 (lihat firmware Bagian 4).
 
