@@ -191,14 +191,18 @@ class Orchestrator:
 
         session.io.feedback.state("thinking")
         # Filler "Hmm" paralel dengan ronde pertama; di-join sebelum suara apa pun diputar.
-        filler_thread = threading.Thread(target=session.io.sink.speak, args=(self.FILLER_TEXT,), daemon=True)
-        filler_thread.start()
+        # Dilewati bila sink tidak menginginkannya (mis. F5: filler-nya sendiri butuh ~4 detik
+        # dan otak menunggunya selesai, jadi justru menambah delay). Lihat io_contracts.
+        filler_thread = None
+        if getattr(session.io.sink, "wants_filler", True):
+            filler_thread = threading.Thread(target=session.io.sink.speak, args=(self.FILLER_TEXT,), daemon=True)
+            filler_thread.start()
 
         final_text = ""
         for hop in range(self.MAX_TOOL_HOPS + 1):
             # Ronde terakhir: paksa jawaban teks (tanpa tool) agar loop berhenti.
             tools = None if hop == self.MAX_TOOL_HOPS else self.tools.schemas()
-            pre_speak = filler_thread.join if hop == 0 else None
+            pre_speak = filler_thread.join if (filler_thread and hop == 0) else None
 
             text, tool_calls = self._stream_round(session, working, tools=tools, pre_speak=pre_speak)
 
@@ -245,10 +249,19 @@ class Orchestrator:
 
     def _stream_round(self, session: Session, working, tools=None, pre_speak=None):
         """
-        Satu ronde LLM streaming: producer (LLM -> antrian) + consumer (TTS speak_stream).
-        Kembalikan (teks_lengkap, tool_calls). Content (bila ada) langsung diucapkan per kalimat.
+        Satu ronde LLM. Kembalikan (teks_lengkap, tool_calls).
+
+        Dua mode, dipilih dari sink (lihat modules/io_contracts.py):
+        - stream_by_sentence=True (mms/edge): producer (LLM -> antrian) + consumer
+          (TTS speak_stream) berjalan bersamaan -> kalimat pertama terdengar lebih cepat.
+        - stream_by_sentence=False (f5_indo): tunggu jawaban lengkap, ucapkan SEKALI.
+          Untuk engine mahal per panggilan, ini malah lebih cepat & prosodinya utuh.
+
         pre_speak: callable yang dipanggil sebelum mulai mengucapkan (mis. join filler).
         """
+        if not getattr(session.io.sink, "stream_by_sentence", True):
+            return self._round_whole(session, working, tools=tools, pre_speak=pre_speak)
+
         chunk_q: "queue.Queue" = queue.Queue()
         parts = []
         tool_calls = []
@@ -282,6 +295,36 @@ class Orchestrator:
 
         producer.join()
         return " ".join(parts).strip(), tool_calls
+
+    def _round_whole(self, session: Session, working, tools=None, pre_speak=None):
+        """
+        Ronde LLM tanpa streaming ke TTS: kumpulkan jawaban utuh, baru ucapkan sekali.
+
+        Dipakai engine yang mahal per panggilan (F5 voice cloning). Teks tetap dicetak
+        mengalir ke terminal, jadi yang berubah hanya cara mengucapkannya. Potongan
+        digabung dengan spasi seperti mode streaming supaya teks yang disimpan ke memori
+        identik di kedua mode.
+        """
+        parts = []
+        tool_calls = []
+
+        print("🤖 AI: ", end="", flush=True)
+        for chunk in self.llm.stream_response(working, tools=tools, tool_calls_out=tool_calls):
+            parts.append(chunk)
+        print()
+
+        if pre_speak:
+            pre_speak()
+
+        text = " ".join(parts).strip()
+        if text:
+            session.io.feedback.state("speaking")
+            # Potongan LLM sudah membawa spasi sendiri, jadi hasil join bisa berspasi ganda.
+            # Mode streaming tak pernah melihatnya (tiap potongan diucapkan terpisah);
+            # di sini teksnya utuh, jadi dirapikan dulu sebelum masuk TTS. Nilai yang
+            # DIKEMBALIKAN dibiarkan apa adanya agar isi memori identik dengan mode streaming.
+            session.io.sink.speak(re.sub(r"\s+", " ", text))
+        return text, tool_calls
 
     def _compress_memory(self, messages):
         """Kompres bagian tengah riwayat jadi 2 kalimat ringkasan (recursive summarization)."""
