@@ -5,6 +5,13 @@ import os
 # (dipakai F5-TTS) dimuat berbarengan. Harus di-set SEBELUM library berat diimpor.
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
+# Plugin GPU OpenVINO (backend STT 'openvino') menyemburkan ~17 baris 'onednn_verbose,...
+# error,ocl,...' ke STDOUT saat inisialisasi. Itu cuma probing OpenCL antar-GPU (Arc + iGPU
+# Radeon) yang gagal lalu jalan normal -- bukan kegagalan, tapi terbaca seperti error.
+# Diamkan di aplikasi; scripts/check_hardware.py sengaja TIDAK menyetel ini agar tetap terlihat
+# saat mendiagnosa masalah GPU.
+os.environ.setdefault("ONEDNN_VERBOSE", "0")
+
 # Pastikan output emoji/Unicode tidak meng-crash terminal Windows lawas (cp1252).
 # Tanpa ini, print berisi emoji (🔊 🎙️ ✅ dst) bisa melempar UnicodeEncodeError.
 try:
