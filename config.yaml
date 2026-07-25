@@ -71,6 +71,16 @@ tts:
   #   edge    -> Edge TTS Microsoft (cloud, butuh internet) -- legacy/fallback.
   engine: "mms"
 
+  # --- Cara mengucapkan jawaban (otomatis mengikuti engine, lihat modules/io_contracts.py) ---
+  #   mms / edge  -> streaming per kalimat + filler "Mmmm" saat berpikir (latensi terasa kecil).
+  #   f5_indo     -> jawaban ditunggu LENGKAP lalu diucapkan sekali, TANPA filler. Sebab tiap
+  #                  panggilan F5 ~4 detik apa pun panjang teksnya, jadi memotong per koma
+  #                  malah menambah delay dan memecah intonasi (prosodi dihitung per potongan).
+  # Dua kunci di bawah hanya untuk memaksa perilaku lain dari default engine-nya.
+  # Biarkan dikomentari agar ikut engine.
+  # stream_sentences: true # false = tunggu jawaban lengkap dulu, baru diucapkan
+  # filler: true # false = jangan putar filler "Mmmm" saat menunggu LLM
+
   # --- MMS-TTS (default lokal Bahasa Indonesia) ---
   mms:
     model_id: "facebook/mms-tts-ind" # repo-id (fallback auto-download)
