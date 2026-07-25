@@ -51,7 +51,12 @@ tts:
   mms:
     model_id: "facebook/mms-tts-ind" # repo-id (fallback auto-download)
     local_dir: "models/tts/mms-tts-ind" # folder lokal download manual (lihat models/README.md)
-    device: "auto" # auto -> pakai Intel Arc (xpu) bila tersedia, jika tidak fallback ke cpu
+    # SENGAJA 'cpu', BUKAN 'auto'. Hasil ukur scripts/bench_tts.py di Arc B580 + Ryzen 8500G:
+    #   cpu = ~780 ms/kalimat (5.6x realtime)  |  xpu = ~2900 ms/kalimat (1.5x realtime)
+    # MMS-TTS (VITS) itu model kecil dengan ratusan op berurutan, jadi ongkos dispatch
+    # kernel GPU (flat ~2.8 s, tidak peduli panjang kalimat) mengalahkan komputasinya.
+    # Ubah ke 'auto'/'xpu' hanya bila hasil benchmark di mesinmu berbeda.
+    device: "cpu"
 
   # --- F5-TTS voice cloning (Bahasa Indonesia) ---
   # Taruh sampel suaramu di folder voices/ (lihat voices/README.md untuk format).
