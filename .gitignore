@@ -1,4 +1,7 @@
 venv/
+# venv kedua khusus konversi model ke OpenVINO IR (optimum-intel menuntut
+# transformers<5.1 & safetensors<0.8 yang bentrok dengan venv runtime).
+venv-convert/
 __pycache__/
 *.pyc
 .env
