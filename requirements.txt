@@ -20,7 +20,9 @@
 
 # --- Core & Config ---
 PyYAML==6.0.1
-requests==2.31.0
+# Naik dari pin lama 2.31.0: rantai dependensi f5-tts (cached_path/wandb/datasets)
+# menuntut >=2.33, dan 2.32+ menutup CVE-2024-35195. Kode hanya memakai requests.post.
+requests>=2.32
 aiohttp
 
 # --- STT (Speech to Text) ---
@@ -44,12 +46,22 @@ scipy
 sounddevice        # pemutaran waveform ke speaker
 
 # --- TTS voice cloning (opsional, engine f5_indo) ---
-# Install: pip install f5-tts   (torchaudio sudah ikut dari trio XPU di atas)
-# Tidak butuh FFmpeg: modules/tts_f5.py sudah patch torchaudio.load -> soundfile,
-# set KMP_DUPLICATE_LIB_OK, dan pre-load pyarrow untuk cegah segfault di Windows.
-# CATATAN: di CPU sangat lambat (~90 dtk/kalimat) -> inilah kandidat utama pemakai
-# Intel Arc (device: auto -> xpu di config.yaml). Paket ini berat (gradio, wandb,
-# bitsandbytes, torchcodec) -- install hanya bila voice cloning benar-benar dipakai.
+# Paket ini BERAT (50+ dependensi: gradio, wandb, boto3, numba, pyarrow) dan rewel.
+# Install hanya bila voice cloning dipakai, dan WAJIB dengan constraints supaya tidak
+# menyeret torch ke build CPU dari PyPI (yang membuat Arc tidak terpakai):
+#
+#   printf '%s\n' "torch==2.11.0+xpu" "torchaudio==2.11.0+xpu" \
+#       "torchvision==0.26.0+xpu" "numpy<2.5" "transformers==5.14.1" > pagar.txt
+#   pip install f5-tts -c pagar.txt
+#   pip uninstall -y torchcodec        # WAJIB, lihat alasan di bawah
+#
+# torchcodec HARUS dicabut setelahnya: ia butuh FFmpeg (tidak ada di Windows ini) dan
+# gagal memuat DLL-nya, sementara sentence-transformers mengimpornya tanpa pengaman
+# -> RAG/ChromaDB ikut mati. modules/tts_f5.py memang sudah mengalihkan torchaudio.load
+# ke soundfile, jadi F5 tidak membutuhkannya. Efek samping: 'pip check' akan bilang
+# "f5-tts requires torchcodec, which is not installed" -- itu wajar dan aman.
+# Install ini juga menurunkan rich 15 -> 13.9 (dituntut cached-path; chromadb & typer
+# tetap puas) dan menaikkan requests.
 # f5-tts
 
 # --- TTS legacy (opsional, engine edge -> cloud Microsoft) ---
