@@ -20,7 +20,19 @@ llm:
   disable_thinking: false
 
 stt:
-  # Berjalan di CPU AMD Ryzen 8500G
+  # Pilih backend transkripsi (dipilih lewat modules/stt_factory.py):
+  #   faster_whisper -> CTranslate2 di CPU Ryzen. CTranslate2 TIDAK punya backend Intel GPU,
+  #                     jadi backend ini selalu memakan CPU.
+  #   openvino       -> Whisper di Intel Arc B580 (device 'GPU'), membebaskan CPU.
+  #                     Butuh model format OpenVINO IV/IR hasil konversi sekali jalan
+  #                     (lihat models/README.md) -> blok 'openvino' di bawah.
+  # Hasil ukur scripts/bench_stt.py (audio 3.9 s, model medium):
+  #   faster_whisper cpu/int8 = 3603 ms (1.1x realtime)
+  #   openvino GPU (Arc B580) =  435 ms (9.0x realtime)  <-- 8x lebih cepat, teks sama
+  #   openvino CPU            = 2184 ms (1.8x realtime)
+  backend: "openvino"
+
+  # --- Backend faster_whisper (CPU AMD Ryzen 8500G) ---
   # 'int8' digunakan agar konsumsi RAM sangat kecil namun tetap akurat
   # 'model'     = repo-id Hugging Face (fallback auto-download).
   # 'local_dir' = folder lokal hasil download manual; dipakai bila berisi file (lihat models/README.md).
@@ -32,6 +44,18 @@ stt:
   # --- Tuning kecepatan CPU (tanpa turunkan kualitas berarti) ---
   cpu_threads: 0 # 0 = pakai semua core (os.cpu_count()). Mempercepat di CPU multi-core.
   beam_size: 1 # 1 = greedy (lebih cepat). Default whisper 5; untuk obrolan kasual beda akurasi minim.
+
+  # --- Backend openvino (Intel Arc B580) ---
+  # Aktif hanya bila stt.backend = "openvino". Model WAJIB format OpenVINO IR hasil
+  # 'optimum-cli export openvino' (model CTranslate2 di atas TIDAK bisa dipakai di sini).
+  openvino:
+    model_dir: "models/stt/whisper-medium-id-ov"
+    device: "GPU" # "GPU" = Arc B580 (dGPU), "CPU", atau "GPU.1"/"NPU" bila ada.
+    # Cache hasil kompilasi kernel GPU (start pertama ~12 s, berikutnya jauh lebih cepat).
+    # Kosongkan ("") untuk menonaktifkan. Folder data/ sudah gitignored.
+    cache_dir: "data/ov_cache"
+    # Bila device ini gagal, modul otomatis mencoba "CPU"; bila model belum dikonversi,
+    # stt_factory jatuh ke backend faster_whisper dengan peringatan.
 
 vision:
   # Berjalan di iGPU / CPU. CATATAN: vision belum dirangkai ke main.py (modul opsional).
