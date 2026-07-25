@@ -108,9 +108,24 @@ Temuan asli (historis):
   tokenizer.json`. `stt_engine.py` kini memperingatkan bila file itu hilang, dan
   `models/README.md` §1 mencantumkannya sebagai file wajib. Backend `openvino` tidak
   pernah punya masalah ini (tokenizer ikut di dalam IR).
-- ⚠️ **Engine `f5_indo` belum diuji ulang di torch 2.11+xpu**: paket `f5-tts` belum
-  terpasang di venv (berat: gradio/wandb/bitsandbytes/torchcodec), dan patch
-  `torchaudio.load` di `tts_f5.py` perlu diverifikasi lagi di torchaudio 2.11.
+- ✅ **Engine `f5_indo` TERUJI di torch 2.11+xpu** (2026-07-25): patch `torchaudio.load` di
+  `tts_f5.py` masih berlaku (kini fungsi `apply_windows_patches()` yang dipakai bersama
+  `scripts/bench_tts_f5.py`), `F5TTSManager` jalan lewat config nyata di device `xpu`.
+  Terukur 3.9 s/kalimat di Arc vs 81 s di CPU. ⚠️ Tapi 0.73× realtime — masih di bawah
+  waktu bicara, jadi `mms` tetap default untuk obrolan cepat.
+- ⚠️ **`torchcodec` HARUS tetap tidak terpasang** (2026-07-25). `f5-tts` menariknya sebagai
+  dependensi, tapi torchcodec butuh FFmpeg yang tidak ada di mesin ini sehingga gagal memuat
+  DLL-nya (`libtorchcodec_core8..4.dll`). Masalahnya bukan cuma F5: `sentence_transformers`
+  (`base/modality_types.py`) mengimpor `torchcodec.decoders` **tanpa pengaman**, jadi paket
+  yang ada-tapi-rusak melempar `OSError` dan **mematikan RAG/ChromaDB** — padahal saat
+  torchcodec tidak ada sama sekali, impornya ditangani dengan aman. Sudah dicabut; `pip check`
+  yang bilang "f5-tts requires torchcodec" itu wajar. Kalau suatu saat torchcodec benar-benar
+  dibutuhkan, pasang FFmpeg 4-8 dulu.
+- ⚠️ **Install `f5-tts` menggeser dependensi lain**: `rich` 15 → 13.9.4 (dituntut
+  `cached-path`; chromadb ≥10.11 & typer ≥13.8 tetap puas) dan `requests` 2.31 → 2.34.2
+  (rantai f5 butuh ≥2.33; pin lama di requirements.txt sudah disesuaikan). torch/numpy/
+  transformers ditahan oleh constraints — WAJIB dipakai, kalau tidak torch bisa tertarik ke
+  build CPU dari PyPI dan Arc tidak terpakai lagi.
 
 ## Rekomendasi prioritas
 1. ✅ Perbaiki `requirements.txt`. — **selesai Fase 2 Langkah 0**.
