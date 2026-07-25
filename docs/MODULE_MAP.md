@@ -8,7 +8,10 @@ Status: **Tahap A selesai (Langkah 1–7).** File → tanggung jawab → dipangg
 | `modules/orchestrator.py` | `Orchestrator`, `Session` | Otak: loop, memori (load/save/compress/summarize), tool-loop, streaming TTS, profil, episodic. | `main.py` | **AKTIF** |
 | `modules/io_contracts.py` | `AudioSource`/`AudioSink`/`FeedbackSink` | Kontrak I/O (ABC) pemisah otak ↔ perangkat. | `local_io`, orchestrator | **AKTIF** |
 | `modules/local_io.py` | `LocalMicSource`/`LocalSpeakerSink`/`LocalFeedbackSink`/`LocalIO` | Implementasi kontrak utk mic/speaker PC (bungkus STT/TTS). | `main.py` | **AKTIF** |
-| `modules/stt_engine.py` | `STTManager.capture()/transcribe()` | Rekam mic + transkrip faster-whisper. `transcribe(audio)` reusable utk RobotIO. | `local_io`, orchestrator | **AKTIF** |
+| `modules/stt_factory.py` | `get_stt_manager()` | Pilih backend STT via `config.stt.backend`; fallback ke CPU bila OpenVINO gagal. | `main.py` | **AKTIF** |
+| `modules/stt_base.py` | `BaseSTT.capture()` | Bagian STT non-engine: config + rekam mic (SpeechRecognition). Dibagi semua backend. | `stt_engine`, `stt_ov` | **AKTIF** |
+| `modules/stt_engine.py` | `STTManager.transcribe()` | Transkrip faster-whisper (CTranslate2, CPU). `transcribe(audio)` reusable utk RobotIO. | `stt_factory` | **AKTIF / DEFAULT** |
+| `modules/stt_ov.py` | `OVSTTManager.transcribe()` | Transkrip Whisper OpenVINO di Arc (`GPU`), fallback CPU; butuh IR hasil konversi. | `stt_factory` (`openvino`) | **AKTIF (opt-in)** |
 | `modules/llm_client.py` | `LLMClient.stream_response()` | Streaming LM Studio + tool-calling + `disable_thinking` + override `max_tokens`. | orchestrator | **AKTIF** |
 | `modules/tts_factory.py` | `get_tts_manager()` | Pilih engine TTS via `config.tts.engine`. | `main.py` | **AKTIF** |
 | `modules/tts_mms.py` | `MMSTTSManager` | MMS-TTS Indonesia lokal (default). | `tts_factory` | **AKTIF / DEFAULT** |
@@ -20,6 +23,9 @@ Status: **Tahap A selesai (Langkah 1–7).** File → tanggung jawab → dipangg
 | `modules/episodic_log.py` | `EpisodicLogger` | Log episodik JSONL (`data/episodes.jsonl`), extensible. | orchestrator | **AKTIF** |
 | `modules/model_paths.py` | `resolve()` | Folder model lokal → fallback repo-id. | stt/mms/memory | **AKTIF** |
 | `reset_memory.py` | `main()` | Factory reset: hapus memory.json + data/(profile, vectordb, episodes). | manual | **AKTIF** |
+| `scripts/check_hardware.py` | `main()` | Diagnosa: torch `+xpu`/Arc, device OpenVINO, batas numpy. | manual | Util |
+| `scripts/bench_tts.py` · `scripts/bench_stt.py` | `main()` | Ukur CPU vs Arc untuk TTS & STT (dasar keputusan device di ARCHITECTURE §8). | manual | Util |
+| `scripts/patch_ov_whisper_config.py` | `main()` | Tambal `lang_to_id` di `generation_config.json` hasil ekspor OpenVINO. | manual (sekali per konversi) | Util |
 | `config.yaml` | — | Konfigurasi global. | semua `__init__` | **AKTIF** |
 | `modules/router.py` | `Router` | Intent regex. | — | **DEAD** |
 | `modules/vision_engine.py` | `VisionManager` | Moondream2 + webcam. | — | **DEAD** (Tahap B) |
