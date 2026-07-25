@@ -31,6 +31,10 @@ class LocalSpeakerSink(AudioSink):
 
     def __init__(self, tts):
         self._tts = tts
+        # Teruskan preferensi engine ke otak. Engine yang tidak menyatakan apa pun
+        # dianggap cepat (streaming per kalimat + filler), seperti perilaku lama.
+        self.stream_by_sentence = getattr(tts, "stream_by_sentence", True)
+        self.wants_filler = getattr(tts, "wants_filler", True)
 
     def speak(self, text: str) -> None:
         if text and text.strip():

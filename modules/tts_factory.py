@@ -18,18 +18,29 @@ def get_tts_manager(config_path="config.yaml"):
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
 
-    engine = (config.get("tts", {}).get("engine") or "mms").lower()
+    tts_conf = config.get("tts", {})
+    engine = (tts_conf.get("engine") or "mms").lower()
 
     if engine == "mms":
         from modules.tts_mms import MMSTTSManager
-        return MMSTTSManager(config_path)
-    if engine == "f5_indo":
+        manager = MMSTTSManager(config_path)
+    elif engine == "f5_indo":
         from modules.tts_f5 import F5TTSManager
-        return F5TTSManager(config_path)
-    if engine == "edge":
+        manager = F5TTSManager(config_path)
+    elif engine == "edge":
         from modules.tts_engine import EdgeTTSManager
-        return EdgeTTSManager(config_path)
+        manager = EdgeTTSManager(config_path)
+    else:
+        raise ValueError(
+            f"tts.engine '{engine}' tidak dikenal. Pilihan: 'mms', 'f5_indo', 'edge'."
+        )
 
-    raise ValueError(
-        f"tts.engine '{engine}' tidak dikenal. Pilihan: 'mms', 'f5_indo', 'edge'."
-    )
+    # Override manual (opsional) atas preferensi pengucapan bawaan engine. Default engine
+    # sudah masuk akal (lihat modules/io_contracts.py), jadi kunci ini hanya untuk eksperimen
+    # -- mis. memaksa engine cepat pun menunggu jawaban lengkap.
+    for key, attr in (("stream_sentences", "stream_by_sentence"), ("filler", "wants_filler")):
+        if key in tts_conf and tts_conf[key] is not None:
+            setattr(manager, attr, bool(tts_conf[key]))
+            print(f"🔊 Override config: {attr} = {bool(tts_conf[key])}")
+
+    return manager
