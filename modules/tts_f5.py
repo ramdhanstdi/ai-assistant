@@ -61,6 +61,17 @@ def apply_windows_patches():
 
 
 class F5TTSManager:
+    # Preferensi pengucapan yang dibaca otak lewat AudioSink (lihat modules/io_contracts.py).
+    # F5 berbeda sifat dari MMS: satu panggilan infer ~4 detik APA PUN panjang teksnya, dan
+    # voice cloning menghitung prosodi untuk seluruh teks yang diberikan. Kalau jawaban
+    # dipotong per koma (llm_client memotong di tiap tanda baca), hasilnya: tiap potongan
+    # bayar ~4 detik DAN intonasinya pecah karena dihitung per potongan, bukan per kalimat.
+    # Jadi untuk F5 lebih baik tunggu jawaban lengkap lalu ucapkan sekali.
+    stream_by_sentence = False
+    # Filler "Mmmm" juga disintesis F5 (~4 detik) dan otak menunggunya selesai sebelum
+    # jawaban boleh bersuara -> filler justru MENAMBAH delay, bukan menutupinya.
+    wants_filler = False
+
     def __init__(self, config_path="config.yaml"):
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"Konfigurasi file {config_path} tidak ditemukan!")
