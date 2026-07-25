@@ -66,8 +66,10 @@ Temuan asli (historis):
 - ✅ **TTS kini default lokal**: engine `mms` (MMS-TTS Bahasa Indonesia) jadi default di
   `config.yaml → tts.engine`, 100% offline. Edge TTS (cloud) turun jadi opsi `edge` (legacy).
   Voice cloning lokal tersedia via engine `f5_indo`. Lihat `modules/tts_factory.py`.
-  ⚠️ Catatan baru: engine `mms`/`f5_indo` butuh `torch`+`transformers` (berat); akselerasi
-  Intel Arc butuh IPEX terpasang terpisah, jika tidak fallback ke CPU (lebih lambat).
+  ✅ **Catatan IPEX sudah tidak berlaku** (migrasi Arc, 2026-07-25): dukungan XPU menyatu di
+  torch inti — cukup build `+xpu` + driver Intel. Ternyata MMS-TTS **lebih cepat di CPU**
+  (780 ms vs 2900 ms per kalimat), jadi `tts.mms.device` sengaja dipatok `cpu`; lihat
+  ARCHITECTURE §8 untuk angka & alasannya.
 - ⚠️ LLM tetap bergantung **LM Studio hidup** di `:1234`. Bila mati, `stream_response` hanya
   print error dan loop lanjut tanpa suara. (Belum ditangani.)
 
@@ -75,6 +77,36 @@ Temuan asli (historis):
 - `config.yaml: llm.api_key = "lm-studio"` — placeholder lokal, bukan rahasia nyata (aman).
 - ✅ `memory.json` + sampel suara `voices/*.wav` kini sudah di-`.gitignore` (data pribadi).
 - `.env` sudah di-gitignore. `data/` gitignored.
+
+## H. Dependensi hardware (temuan migrasi Intel Arc, 2026-07-25)
+- ⚠️ **`numpy` terkunci `<2.5`** oleh `openvino 2026.2.x`. Upgrade numpy tanpa cek akan
+  mematikan impor OpenVINO (STT backend `openvino` + `scripts/check_hardware.py`).
+- ⚠️ **`optimum-intel` tidak boleh masuk venv runtime**: menuntut `transformers<5.1`,
+  `safetensors<0.8.0`, `requests>=2.33` — bentrok mati dengan `transformers` 5.x
+  (`safetensors>=0.8.0`) dan pin `requests==2.31.0`. Konversi model dilakukan di
+  `venv-convert/` (lihat `models/README.md` §1b).
+- ⚠️ **`torch` dipatok 2.11.0** karena `torchaudio` (dipakai engine `f5_indo`) rilis
+  terakhirnya 2.11.0. Kalau `f5_indo` dibuang, torch boleh naik ke 2.13+.
+- ✅ **Lockfile**: `requirements.lock.txt` = kondisi setelah migrasi yang sudah diverifikasi
+  jalan; `requirements.lock.pre-xpu.txt` = titik rollback sebelum migrasi (torch CPU + numpy 2.5.1).
+- ⚠️ **Ekspor Whisper→OpenVINO punya 2 jebakan** yang menghasilkan model gagal-pakai:
+  task harus `automatic-speech-recognition-with-past` (kalau tidak: `beam_idx ... not found`),
+  dan `generation_config.json` hasil ekspor harus ditambal `lang_to_id` lewat
+  `scripts/patch_ov_whisper_config.py` (kalau tidak: `'lang_to_id' map must be provided`).
+  Detail di `models/README.md` §1b.
+- ⚠️ **Plugin GPU OpenVINO mencetak ~17 baris `onednn_verbose,...error,ocl,...` ke STDOUT**
+  saat init (probing OpenCL antara Arc & iGPU Radeon; setelahnya jalan normal). Dibungkam
+  dengan `ONEDNN_VERBOSE=0` di `main.py`; `scripts/check_hardware.py` sengaja tidak
+  membungkamnya agar tetap kelihatan saat mendiagnosa.
+- ⚠️ **`data/ov_cache` ~760 MB** (cache kernel GPU). Gitignored, aman dihapus — hanya membuat
+  start pertama kembali ~12 detik.
+- ⚠️ **`faster_whisper` masih menyentuh internet saat load**: folder lokal
+  `models/stt/faster-whisper-medium-id/` tidak punya `tokenizer.json`, sehingga
+  faster-whisper mengunduh tokenizer `openai/whisper-tiny` dari HF. Klaim "100% offline"
+  belum sepenuhnya benar untuk STT (backend `openvino` tidak punya masalah ini).
+- ⚠️ **Engine `f5_indo` belum diuji ulang di torch 2.11+xpu**: paket `f5-tts` belum
+  terpasang di venv (berat: gradio/wandb/bitsandbytes/torchcodec), dan patch
+  `torchaudio.load` di `tts_f5.py` perlu diverifikasi lagi di torchaudio 2.11.
 
 ## Rekomendasi prioritas
 1. ✅ Perbaiki `requirements.txt`. — **selesai Fase 2 Langkah 0**.
