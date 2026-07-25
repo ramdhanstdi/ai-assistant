@@ -100,10 +100,14 @@ Temuan asli (historis):
   membungkamnya agar tetap kelihatan saat mendiagnosa.
 - ⚠️ **`data/ov_cache` ~760 MB** (cache kernel GPU). Gitignored, aman dihapus — hanya membuat
   start pertama kembali ~12 detik.
-- ⚠️ **`faster_whisper` masih menyentuh internet saat load**: folder lokal
-  `models/stt/faster-whisper-medium-id/` tidak punya `tokenizer.json`, sehingga
-  faster-whisper mengunduh tokenizer `openai/whisper-tiny` dari HF. Klaim "100% offline"
-  belum sepenuhnya benar untuk STT (backend `openvino` tidak punya masalah ini).
+- ✅ **`faster_whisper` menyentuh internet saat load** — RESOLVED (2026-07-25):
+  `tokenizer.json` (dari `openai/whisper-medium`, tokenizer multilingual identik — vocab
+  51865, hasil encode sama) ditaruh di `models/stt/faster-whisper-medium-id/`. Dibuktikan
+  A/B dengan cache HF disingkirkan + `HF_HUB_OFFLINE=1`: ada file → transkripsi jalan &
+  teks identik; tanpa file → `OfflineModeIsEnabled: Cannot reach .../openai/whisper-tiny/
+  tokenizer.json`. `stt_engine.py` kini memperingatkan bila file itu hilang, dan
+  `models/README.md` §1 mencantumkannya sebagai file wajib. Backend `openvino` tidak
+  pernah punya masalah ini (tokenizer ikut di dalam IR).
 - ⚠️ **Engine `f5_indo` belum diuji ulang di torch 2.11+xpu**: paket `f5-tts` belum
   terpasang di venv (berat: gradio/wandb/bitsandbytes/torchcodec), dan patch
   `torchaudio.load` di `tts_f5.py` perlu diverifikasi lagi di torchaudio 2.11.
