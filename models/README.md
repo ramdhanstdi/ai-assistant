@@ -16,13 +16,26 @@ kode fallback ke auto-download dari Hugging Face (lihat `modules/model_paths.py`
 Taruh di: **`models/stt/faster-whisper-medium-id/`**
 Repo: https://huggingface.co/cahya/faster-whisper-medium-id
 
-| File | Ukuran |
-|------|--------|
-| `config.json` | 7 KB |
-| `model.bin` | **1.43 GB** |
-| `preprocessor_config.json` | 185 KB |
-| `tokenizer_config.json` | <1 KB |
-| `vocabulary.json` | 1 MB |
+| File | Ukuran | Catatan |
+|------|--------|---------|
+| `config.json` | 7 KB | |
+| `model.bin` | **1.43 GB** | |
+| `preprocessor_config.json` | 185 KB | |
+| `tokenizer_config.json` | <1 KB | |
+| `vocabulary.json` | 1 MB | |
+| `tokenizer.json` | 3.6 MB | **tidak ada di repo ini** — ambil dari `openai/whisper-medium` |
+
+> **`tokenizer.json` wajib ditambahkan manual.** faster-whisper mencari file itu di folder
+> model; kalau tidak ada, ia **mengunduh tokenizer `openai/whisper-tiny` dari internet setiap
+> start** (lihat `faster_whisper/transcribe.py`), jadi setup yang mengaku offline sebenarnya
+> masih butuh koneksi. Tokenizer Whisper multilingual sama untuk semua ukuran model, jadi
+> file dari repo resmi aman dipakai:
+>
+> `https://huggingface.co/openai/whisper-medium/resolve/main/tokenizer.json`
+>
+> Sudah diverifikasi identik dengan yang diunduh fallback (vocab 51865, hasil encode sama),
+> dan setelah file ini ada, transkripsi berhasil dengan `HF_HUB_OFFLINE=1` tanpa cache HF.
+> `modules/stt_engine.py` memperingatkan bila file ini hilang.
 
 Config terkait: `stt.local_dir`.
 
