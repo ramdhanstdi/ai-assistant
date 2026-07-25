@@ -81,6 +81,15 @@ RobotIO (Tahap B) = implementasi lain dari kontrak yang sama.
 - **Streaming TTS per kalimat**: kalimat pertama diucapkan tanpa menunggu jawaban utuh; generasi
   LLM overlap dengan pemutaran (producer-consumer).
 - **Filler paralel**: "Hmm" saat berpikir, "aku ingat itu" saat kompresi, "rangkum dulu" saat keluar.
+- **Strategi ini TIDAK cocok untuk semua engine.** Sink menyatakan preferensinya lewat dua flag
+  di `io_contracts.AudioSink` (`stream_by_sentence`, `wants_filler`) dan otak menyesuaikan —
+  tanpa perlu tahu engine apa yang aktif:
+  - `mms`/`edge` (murah per panggilan): streaming per kalimat + filler → latensi terasa kecil.
+  - `f5_indo` (~4 s per panggilan, apa pun panjang teks): `Orchestrator._round_whole()` menunggu
+    jawaban lengkap lalu mengucapkannya SEKALI, dan filler dilewati. Memotong per tanda baca
+    (yang dilakukan `llm_client`) di engine ini membuat tiap potongan bayar ongkos tetap
+    **dan** memecah prosodi, karena voice cloning menghitung intonasi per potongan.
+  Bisa dipaksa lewat `config.yaml → tts.stream_sentences` / `tts.filler`.
 - **Summary cepat**: kompresi/exit dipaksa 256 token + tanpa-thinking (~2× lebih cepat).
 
 ## 7. Konfigurasi & data

@@ -14,7 +14,7 @@ Sebuah asisten AI lokal modular yang dirancang untuk berinteraksi menggunakan Ba
 - **🗣️ STT (swappable):** `faster_whisper` (CTranslate2, CPU/int8, default) atau `openvino` (Whisper di Intel Arc). Dipilih di `config.yaml → stt.backend`. `capture()` & `transcribe()` terpisah (siap untuk sumber audio lain).
 - **🔊 TTS lokal (swappable):** `mms` (MMS-TTS Indonesia, default, 100% offline), `f5_indo` (voice cloning), `edge` (legacy cloud). Dipilih di `config.yaml → tts.engine`.
 - **🎭 Orchestrator + kontrak I/O:** otak (STT→memori→LLM→TTS) terpisah dari sumber/tujuan suara lewat `AudioSource`/`AudioSink`/`FeedbackSink` — robot tinggal "dicolok" nanti.
-- **⚡ Streaming & filler:** jawaban diucapkan **per kalimat** sambil LLM lanjut generate; filler suara ("Hmm") menutup jeda.
+- **⚡ Streaming & filler (menyesuaikan engine):** untuk engine cepat (`mms`/`edge`) jawaban diucapkan **per kalimat** sambil LLM lanjut generate + filler ("Hmm") menutup jeda. Untuk `f5_indo` (mahal per panggilan) jawaban ditunggu **lengkap lalu diucapkan sekali tanpa filler**, supaya intonasinya tidak pecah dan tidak menambah delay. Bisa dipaksa via `tts.stream_sentences`/`tts.filler`.
 - **🛠️ Lapisan aksi (tools):** `get_waktu`, `cari_memori`, `ingat_profil` (plug-in, mudah ditambah).
 - **📚 Memori berlapis:** kerja (ringkasan + recursive summarization), **RAG** (ChromaDB), **profil terstruktur** (selalu diingat), dan **episodic log** (JSONL tiap giliran).
 - **🧹 Reset:** `python reset_memory.py` untuk factory reset semua memori.

@@ -5,15 +5,15 @@ Status: **Tahap A selesai (Langkah 1–7).** File → tanggung jawab → dipangg
 | File | Inti | Tanggung jawab | Dipanggil oleh | Status |
 |------|------|----------------|----------------|--------|
 | `main.py` | `main()` | Perakit tipis: load modul → `LocalIO` → `Orchestrator` → `Session` → `run()`. Berisi `DEFAULT_SYSTEM_PROMPT` + guard env (KMP, UTF-8). | entry point | **AKTIF** |
-| `modules/orchestrator.py` | `Orchestrator`, `Session` | Otak: loop, memori (load/save/compress/summarize), tool-loop, streaming TTS, profil, episodic. | `main.py` | **AKTIF** |
-| `modules/io_contracts.py` | `AudioSource`/`AudioSink`/`FeedbackSink` | Kontrak I/O (ABC) pemisah otak ↔ perangkat. | `local_io`, orchestrator | **AKTIF** |
+| `modules/orchestrator.py` | `Orchestrator`, `Session` | Otak: loop, memori (load/save/compress/summarize), tool-loop, profil, episodic. Dua mode ucap: `_stream_round` (per kalimat) & `_round_whole` (jawaban utuh, engine mahal seperti F5). | `main.py` | **AKTIF** |
+| `modules/io_contracts.py` | `AudioSource`/`AudioSink`/`FeedbackSink` | Kontrak I/O (ABC) pemisah otak ↔ perangkat. `AudioSink` juga membawa flag `stream_by_sentence`/`wants_filler` sebagai cara sink memberi tahu otak cara mengucapkan. | `local_io`, orchestrator | **AKTIF** |
 | `modules/local_io.py` | `LocalMicSource`/`LocalSpeakerSink`/`LocalFeedbackSink`/`LocalIO` | Implementasi kontrak utk mic/speaker PC (bungkus STT/TTS). | `main.py` | **AKTIF** |
 | `modules/stt_factory.py` | `get_stt_manager()` | Pilih backend STT via `config.stt.backend`; fallback ke CPU bila OpenVINO gagal. | `main.py` | **AKTIF** |
 | `modules/stt_base.py` | `BaseSTT.capture()` | Bagian STT non-engine: config + rekam mic (SpeechRecognition). Dibagi semua backend. | `stt_engine`, `stt_ov` | **AKTIF** |
 | `modules/stt_engine.py` | `STTManager.transcribe()` | Transkrip faster-whisper (CTranslate2, CPU). `transcribe(audio)` reusable utk RobotIO. | `stt_factory` | **AKTIF / DEFAULT** |
 | `modules/stt_ov.py` | `OVSTTManager.transcribe()` | Transkrip Whisper OpenVINO di Arc (`GPU`), fallback CPU; butuh IR hasil konversi. | `stt_factory` (`openvino`) | **AKTIF (opt-in)** |
 | `modules/llm_client.py` | `LLMClient.stream_response()` | Streaming LM Studio + tool-calling + `disable_thinking` + override `max_tokens`. | orchestrator | **AKTIF** |
-| `modules/tts_factory.py` | `get_tts_manager()` | Pilih engine TTS via `config.tts.engine`. | `main.py` | **AKTIF** |
+| `modules/tts_factory.py` | `get_tts_manager()` | Pilih engine TTS via `config.tts.engine` + terapkan override `tts.stream_sentences`/`tts.filler`. | `main.py` | **AKTIF** |
 | `modules/tts_mms.py` | `MMSTTSManager` | MMS-TTS Indonesia lokal (default). | `tts_factory` | **AKTIF / DEFAULT** |
 | `modules/tts_f5.py` | `F5TTSManager`, `apply_windows_patches()` | F5-TTS voice cloning; patch Windows (KMP/pyarrow/torchaudio.load→soundfile) kini fungsi modul agar dipakai bench juga. | `tts_factory` (`f5_indo`), `bench_tts_f5` | **TERUJI di Arc** (3.9 s/kalimat; 81 s di CPU) |
 | `modules/tts_engine.py` | `EdgeTTSManager` | Edge TTS (cloud). | `tts_factory` (`edge`) | **LEGACY** |
