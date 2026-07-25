@@ -163,8 +163,16 @@ Repo: https://huggingface.co/Eempostor/F5-TTS-INDO-FINETUNE
 | `f5_tts_ind.pt` | **1.26 GB** | checkpoint utama |
 
 > Repo ini **tidak** menyertakan `vocab.txt` → biarkan `tts.f5_indo.vocab_file` kosong
-> (pakai vocab base F5 bawaan paket `f5-tts`). Butuh `pip install f5-tts` dulu.
-Config terkait: `tts.f5_indo.ckpt_file`.
+> (pakai vocab base F5 bawaan paket `f5-tts`).
+>
+> **Instalasi paketnya rewel** — lihat blok `f5-tts` di `requirements.txt`: wajib pakai
+> constraints (biar torch tidak tertarik ke build CPU) dan `torchcodec` wajib dicabut lagi
+> (butuh FFmpeg, dan keberadaannya yang rusak mematikan RAG lewat sentence-transformers).
+> Saat pertama jalan, vocoder Vocos (`charactr/vocos-mel-24khz`) diunduh dari HF.
+>
+> Terukur di Arc B580: 3.9 s/kalimat (0.73× realtime); di CPU 81 s/kalimat — pakai
+> `scripts/bench_tts_f5.py` untuk mengukur ulang.
+Config terkait: `tts.f5_indo.ckpt_file`, `tts.f5_indo.device`.
 
 ---
 
