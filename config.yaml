@@ -86,6 +86,16 @@ tts:
   # Taruh sampel suaramu di folder voices/ (lihat voices/README.md untuk format).
   f5_indo:
     model_repo: "Eempostor/F5-TTS-INDO-FINETUNE"
+    # 'auto' MEMANG tepat di sini (kebalikan dari mms di atas). Hasil ukur
+    # scripts/bench_tts_f5.py di Arc B580 + Ryzen 8500G:
+    #   xpu = 3.9 s/kalimat (0.73x realtime), load model 4 s
+    #   cpu =  81 s/kalimat (0.03x realtime), load model 40 s   -> 21x lebih lambat
+    # F5 model besar dengan banyak langkah sampling, jadi GPU jelas menang.
+    # CATATAN: 0.73x realtime masih < 1, artinya sintesis lebih lambat dari durasi
+    # bicara -> streaming per kalimat akan terasa menunggu (~4 s per kalimat). Untuk
+    # obrolan cepat, engine 'mms' tetap lebih nyaman; pakai f5_indo bila voice cloning
+    # yang diutamakan. Menurunkan nfe_step (default 32) bisa mempercepat dengan
+    # trade-off kualitas.
     device: "auto"
     # Checkpoint hasil download manual (lihat models/README.md). Kosongkan untuk pakai base default.
     ckpt_file: "models/tts/f5-indo/f5_tts_ind.pt"
