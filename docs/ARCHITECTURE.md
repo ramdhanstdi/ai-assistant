@@ -65,7 +65,7 @@ RobotIO (Tahap B) = implementasi lain dari kontrak yang sama.
 
 | Lapisan | Modul | Catatan |
 |---------|-------|---------|
-| STT | `stt_engine.py` | `capture()` (mic) + `transcribe(audio)` (reusable RobotIO). |
+| STT | `stt_factory.py` → `stt_engine.py` (faster-whisper/CPU) / `stt_ov.py` (OpenVINO/Arc) | `capture()` (mic, di `stt_base.py`) + `transcribe(audio)` (reusable RobotIO); backend dipilih via `config.stt.backend`. |
 | LLM | `llm_client.py` | streaming + `tools`/`tool_calls_out`; `disable_thinking` (Qwen); override `max_tokens` per panggilan. |
 | TTS | `tts_factory.py` → `tts_mms` (default) / `tts_f5` (cloning) / `tts_engine` (Edge, legacy) | dipilih via `config.tts.engine`. |
 | Tools | `tool_registry.py` | `get_waktu`, `cari_memori`, `ingat_profil`. Tool-loop di orchestrator (maks 3 hop). |
@@ -91,5 +91,31 @@ RobotIO (Tahap B) = implementasi lain dari kontrak yang sama.
 - Eksternal: **LM Studio** di `localhost:1234`. Engine TTS `mms`/`f5_indo` 100% offline.
 
 ## 8. Hardware mapping
-- STT → CPU (Ryzen). LLM → Intel Arc via LM Studio. TTS lokal (`mms`) → CPU (torch CPU build).
-- Tahap B (nanti): ESP32 sebagai `AudioSource`/`Sink` kedua; sensor; ESP32-CAM untuk vision.
+
+Sejak migrasi ke torch `+xpu` + OpenVINO (branch `feature/intel-arc-xpu-openvino`), pemetaan
+device **diputuskan berdasarkan pengukuran**, bukan asumsi "GPU selalu lebih cepat":
+
+| Beban | Device | Alasan / angka (Arc B580 + Ryzen 5 8500G) |
+|-------|--------|-------------------------------------------|
+| LLM | Arc, via LM Studio `:1234` | di luar proses Python (keputusan tetap; lihat §9) |
+| STT `openvino` (**default baru**) | Arc (`GPU`) | **435 ms vs 3603 ms** untuk audio 3.9 s (8× lebih cepat, teks identik); startup 12 s → ~2.5 s berkat `CACHE_DIR` |
+| STT `faster_whisper` (fallback) | CPU | CTranslate2 tidak punya backend Intel GPU; 3603 ms (1.1× realtime) |
+| TTS `mms` (VITS) | **CPU** | 780 ms/kalimat vs **2900 ms di XPU** — model kecil, ratusan op berurutan, ongkos dispatch kernel (flat ~2.8 s) menang atas komputasi |
+| TTS `f5_indo` | Arc (`auto`→`xpu`) | model besar; di CPU ~90 dtk/kalimat (tidak praktis) |
+| Embedding RAG | CPU (sentence-transformers) | beban sangat kecil; kandidat `TextEmbeddingPipeline` nanti bila perlu |
+
+Prasyarat: torch build `+xpu` (bukan PyPI biasa) + driver Intel Graphics terbaru. IPEX **tidak**
+diperlukan lagi. Cek dengan `python scripts/check_hardware.py`; ukur ulang dengan
+`scripts/bench_tts.py` / `scripts/bench_stt.py` kalau ganti hardware atau driver.
+
+- Tahap B (nanti): ESP32 sebagai `AudioSource`/`Sink` kedua; sensor; ESP32-CAM untuk vision
+  (kandidat: `openvino_genai.VLMPipeline` di Arc, bukan menambah stack torch vision).
+
+## 9. Kenapa LLM tetap di LM Studio (bukan `openvino_genai.LLMPipeline`)
+
+`LLMPipeline` bisa menjalankan LLM langsung di Arc dalam proses ini, tapi ia tidak punya API
+`tools` gaya OpenAI — chat template berisi tool schema dan parsing `tool_calls` harus ditulis
+sendiri, padahal tool-loop di `orchestrator.py` sudah bergantung pada format itu. Ditambah VRAM
+12 GB yang harus dibagi dengan Whisper + TTS. Jadi LM Studio dipertahankan; bila suatu saat
+ingin lepas, jalur paling murah adalah server OpenAI-compatible (mis. OpenVINO Model Server),
+bukan mengganti kontrak `llm_client`.
