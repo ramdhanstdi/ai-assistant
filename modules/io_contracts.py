@@ -29,7 +29,20 @@ class AudioSource(ABC):
 
 
 class AudioSink(ABC):
-    """Penyalur suara respons (ke speaker PC, atau nanti di-stream ke robot)."""
+    """
+    Penyalur suara respons (ke speaker PC, atau nanti di-stream ke robot).
+
+    Dua flag di bawah adalah cara sink memberi tahu otak bagaimana ia sebaiknya diberi
+    teks. Otak tetap tidak tahu engine apa yang dipakai — ia hanya membaca flag ini.
+    Engine cepat (MMS) untung dari streaming per kalimat; engine mahal per panggilan
+    (F5 voice cloning) justru rusak karenanya: tiap potongan jadi inferensi terpisah
+    sehingga prosodi pecah dan tiap potongan bayar ongkos tetap.
+    """
+
+    #: False -> otak mengumpulkan jawaban LLM sampai lengkap, lalu speak() sekali.
+    stream_by_sentence: bool = True
+    #: False -> otak tidak memutar filler ("Mmmm") sambil menunggu ronde pertama LLM.
+    wants_filler: bool = True
 
     @abstractmethod
     def speak(self, text: str) -> None:
