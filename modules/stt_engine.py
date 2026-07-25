@@ -36,6 +36,16 @@ class STTManager(BaseSTT):
         print(f"Loading Whisper model '{model_name}' on '{device}' with type '{compute_type}' "
               f"(cpu_threads={cpu_threads}, beam_size={self.beam_size})...")
 
+        # faster-whisper memakai tokenizer.json dari folder model; bila TIDAK ada, ia
+        # diam-diam mengunduh tokenizer 'openai/whisper-tiny' dari internet (lihat
+        # faster_whisper/transcribe.py). Repo CTranslate2 cahya/ tidak menyertakannya, jadi
+        # tanpa file ini setup "100% offline" sebenarnya masih butuh koneksi saat start.
+        # Diberi peringatan, bukan error: auto-download tetap boleh kalau memang online.
+        if os.path.isdir(model_name) and not os.path.isfile(os.path.join(model_name, "tokenizer.json")):
+            print(f"⚠️ '{model_name}/tokenizer.json' tidak ada -> tokenizer akan DIUNDUH dari "
+                  f"Hugging Face saat start (butuh internet).")
+            print("   Lihat models/README.md §1 untuk melengkapinya agar benar-benar offline.")
+
         # Inisialisasi model faster-whisper dengan setting dinamis
         self.model = WhisperModel(model_name, device=device, compute_type=compute_type, cpu_threads=cpu_threads)
 
