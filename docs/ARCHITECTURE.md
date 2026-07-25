@@ -101,7 +101,7 @@ device **diputuskan berdasarkan pengukuran**, bukan asumsi "GPU selalu lebih cep
 | STT `openvino` (**default baru**) | Arc (`GPU`) | **435 ms vs 3603 ms** untuk audio 3.9 s (8× lebih cepat, teks identik); startup 12 s → ~2.5 s berkat `CACHE_DIR` |
 | STT `faster_whisper` (fallback) | CPU | CTranslate2 tidak punya backend Intel GPU; 3603 ms (1.1× realtime) |
 | TTS `mms` (VITS) | **CPU** | 780 ms/kalimat vs **2900 ms di XPU** — model kecil, ratusan op berurutan, ongkos dispatch kernel (flat ~2.8 s) menang atas komputasi |
-| TTS `f5_indo` | Arc (`auto`→`xpu`) | model besar; di CPU ~90 dtk/kalimat (tidak praktis) |
+| TTS `f5_indo` | Arc (`auto`→`xpu`) | **3.9 s vs 81 s per kalimat** (21× lebih cepat di Arc; load model 4 s vs 40 s). Model besar dengan banyak langkah sampling — kebalikan dari kasus MMS. Tetap 0.73× realtime, jadi streaming per kalimat masih terasa menunggu |
 | Embedding RAG | CPU (sentence-transformers) | beban sangat kecil; kandidat `TextEmbeddingPipeline` nanti bila perlu |
 
 Prasyarat: torch build `+xpu` (bukan PyPI biasa) + driver Intel Graphics terbaru. IPEX **tidak**

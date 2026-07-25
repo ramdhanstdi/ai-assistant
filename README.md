@@ -100,7 +100,7 @@ Anda dapat mengatur berbagai parameter sistem secara fleksibel di dalam file `co
 |-------|----------------|-------------------------------------|
 | STT Whisper medium | **Arc (OpenVINO `GPU`)** | **435 ms (9.0× realtime)** vs 3603 ms faster-whisper CPU int8 (1.1×) — **8× lebih cepat**, teks identik |
 | TTS MMS (VITS) | **CPU** | 780 ms/kalimat (5.6× realtime) vs 2900 ms di XPU |
-| TTS F5 (cloning) | Arc (`auto`→`xpu`) | belum diukur (paket `f5-tts` opsional) |
+| TTS F5 (cloning) | **Arc (`auto`→`xpu`)** | 3.9 s/kalimat (0.73× realtime) vs **81 s di CPU** — 21× lebih cepat, tapi masih di bawah realtime |
 | LLM | Arc via LM Studio | di luar proses Python |
 
 Startup STT di GPU: ~12 s pada run pertama (kompilasi kernel), lalu **~2.5 s** karena hasil

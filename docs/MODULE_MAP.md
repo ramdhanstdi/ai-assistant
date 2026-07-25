@@ -15,7 +15,7 @@ Status: **Tahap A selesai (Langkah 1–7).** File → tanggung jawab → dipangg
 | `modules/llm_client.py` | `LLMClient.stream_response()` | Streaming LM Studio + tool-calling + `disable_thinking` + override `max_tokens`. | orchestrator | **AKTIF** |
 | `modules/tts_factory.py` | `get_tts_manager()` | Pilih engine TTS via `config.tts.engine`. | `main.py` | **AKTIF** |
 | `modules/tts_mms.py` | `MMSTTSManager` | MMS-TTS Indonesia lokal (default). | `tts_factory` | **AKTIF / DEFAULT** |
-| `modules/tts_f5.py` | `F5TTSManager` | F5-TTS voice cloning (fix KMP/pyarrow/soundfile utk Windows). | `tts_factory` (`f5_indo`) | Tersedia (lambat CPU) |
+| `modules/tts_f5.py` | `F5TTSManager`, `apply_windows_patches()` | F5-TTS voice cloning; patch Windows (KMP/pyarrow/torchaudio.load→soundfile) kini fungsi modul agar dipakai bench juga. | `tts_factory` (`f5_indo`), `bench_tts_f5` | **TERUJI di Arc** (3.9 s/kalimat; 81 s di CPU) |
 | `modules/tts_engine.py` | `EdgeTTSManager` | Edge TTS (cloud). | `tts_factory` (`edge`) | **LEGACY** |
 | `modules/tool_registry.py` | `ToolRegistry`, `build_default_registry` | Lapisan aksi: `get_waktu`, `cari_memori`, `ingat_profil`. | orchestrator | **AKTIF** |
 | `modules/memory_engine.py` | `VectorDBManager` | RAG jangka panjang (ChromaDB + embedding lokal). | orchestrator | **AKTIF** |
@@ -24,7 +24,7 @@ Status: **Tahap A selesai (Langkah 1–7).** File → tanggung jawab → dipangg
 | `modules/model_paths.py` | `resolve()` | Folder model lokal → fallback repo-id. | stt/mms/memory | **AKTIF** |
 | `reset_memory.py` | `main()` | Factory reset: hapus memory.json + data/(profile, vectordb, episodes). | manual | **AKTIF** |
 | `scripts/check_hardware.py` | `main()` | Diagnosa: torch `+xpu`/Arc, device OpenVINO, batas numpy. | manual | Util |
-| `scripts/bench_tts.py` · `scripts/bench_stt.py` | `main()` | Ukur CPU vs Arc untuk TTS & STT (dasar keputusan device di ARCHITECTURE §8). | manual | Util |
+| `scripts/bench_tts.py` · `scripts/bench_stt.py` · `scripts/bench_tts_f5.py` | `main()` | Ukur CPU vs Arc untuk TTS (MMS & F5) & STT (dasar keputusan device di ARCHITECTURE §8). | manual | Util |
 | `scripts/patch_ov_whisper_config.py` | `main()` | Tambal `lang_to_id` di `generation_config.json` hasil ekspor OpenVINO. | manual (sekali per konversi) | Util |
 | `config.yaml` | — | Konfigurasi global. | semua `__init__` | **AKTIF** |
 | `modules/router.py` | `Router` | Intent regex. | — | **DEAD** |
