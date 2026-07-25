@@ -28,6 +28,79 @@ Config terkait: `stt.local_dir`.
 
 ---
 
+## 1b. STT di Intel Arc — Whisper → OpenVINO IR  *(OPSIONAL, untuk `stt.backend: "openvino"`)*
+Hasil konversi ditaruh di: **`models/stt/whisper-medium-id-ov/`**
+
+Model CTranslate2 di §1 **tidak bisa** dipakai OpenVINO, dan model OpenVINO tidak bisa
+di-download jadi — harus **dikonversi sekali** dari repo Hugging Face aslinya
+(https://huggingface.co/cahya/whisper-medium-id, `pytorch_model.bin` ~3 GB; hasil IR int8
+≈ 800 MB).
+
+Konversi WAJIB di **venv terpisah**, bukan sekadar demi kerapian: `optimum-intel` menuntut
+`transformers<5.1`, `safetensors<0.8.0`, dan `requests>=2.33`, sementara venv runtime memakai
+`transformers` 5.x + `safetensors>=0.8.0` + `requests==2.31.0` — bentrok dan tidak ada solusi
+yang memuaskan keduanya. Venv `venv-convert/` sudah di-gitignore dan boleh dihapus setelah
+konversi selesai.
+
+```bash
+python -m venv venv-convert
+venv-convert\Scripts\python.exe -m pip install "optimum-intel[openvino]"
+
+venv-convert\Scripts\optimum-cli.exe export openvino ^
+    --model cahya/whisper-medium-id ^
+    --task automatic-speech-recognition-with-past ^
+    --weight-format int8 ^
+    models/stt/whisper-medium-id-ov
+
+REM Lengkapi generation_config.json (lang_to_id) -- lihat penjelasan di bawah
+venv\Scripts\python.exe scripts/patch_ov_whisper_config.py
+```
+
+**Dua jebakan yang WAJIB diperhatikan** (dua-duanya sudah pernah menghasilkan model yang
+gagal jalan di sini):
+
+1. **`-with-past` itu bukan hiasan.** Config `cahya/whisper-medium-id` berisi
+   `use_cache: false` (sisa setelan training), dan optimum menentukan KV-cache dari nama task
+   (`use_cache=task.endswith("with-past")`). Dengan `--task automatic-speech-recognition`
+   biasa, dekoder diekspor tanpa KV-cache/stateful dan openvino_genai menolak:
+   `Port for tensor name beam_idx was not found`.
+2. **`generation_config.json` hasil ekspor tidak lengkap.** Repo finetune tidak menyertakan
+   file itu, jadi optimum menurunkannya dari `config.json` saja — tanpa `lang_to_id`, sehingga
+   pipeline gagal: `Check '!lang_to_id.empty()' failed`. `scripts/patch_ov_whisper_config.py`
+   menambalnya dari `openai/whisper-medium` (peta token milik tokenizer Whisper multilingual,
+   bukan hasil finetune, dan vocab-nya identik: 51865 token, `sot=50258`). File asli disimpan
+   sebagai `generation_config.optimum.json`.
+
+> **Kalau unduhan 3 GB-nya menggantung** (ukuran file `.incomplete` di
+> `~/.cache/huggingface/hub` berhenti bergerak): itu backend transfer **xet**. Matikan dan
+> ulangi — unduhan HTTP klasik bisa resume:
+> ```bash
+> set HF_HUB_DISABLE_XET=1
+> set HF_HUB_DOWNLOAD_TIMEOUT=60
+> ```
+> Hapus dulu file `*.incomplete` sisa xet (tidak bisa dipakai jalur klasik), lalu jalankan
+> `optimum-cli` lagi.
+
+Hasilnya harus berisi `openvino_encoder_model.xml/.bin`, `openvino_decoder_model.xml/.bin`,
+`generation_config.json`, dan file tokenizer. Modul `modules/stt_ov.py` memeriksa keberadaan
+`openvino_encoder_model.xml`; bila tidak ada, `stt_factory` otomatis kembali ke backend
+`faster_whisper` (CPU) dengan peringatan.
+
+Setelah itu aktifkan di `config.yaml`:
+
+```yaml
+stt:
+  backend: "openvino"
+  openvino:
+    model_dir: "models/stt/whisper-medium-id-ov"
+    device: "GPU"
+```
+
+Bandingkan kecepatannya dengan `python scripts/bench_stt.py`.
+Config terkait: `stt.backend`, `stt.openvino.*`.
+
+---
+
 ## 2. TTS default — `facebook/mms-tts-ind`  **(WAJIB untuk engine `mms`)**
 Taruh di: **`models/tts/mms-tts-ind/`**
 Repo: https://huggingface.co/facebook/mms-tts-ind
@@ -94,7 +167,8 @@ config, dan bobot `*.safetensors`). Lewati saja kalau belum memakai fitur vision
 ## Ringkasan: folder → config
 | Model | Folder | Kunci config | Status |
 |-------|--------|--------------|--------|
-| STT whisper | `models/stt/faster-whisper-medium-id/` | `stt.local_dir` | wajib |
+| STT whisper (CPU) | `models/stt/faster-whisper-medium-id/` | `stt.local_dir` | wajib |
+| STT whisper (Arc, IR) | `models/stt/whisper-medium-id-ov/` | `stt.openvino.model_dir` | opsional (hasil konversi §1b) |
 | TTS MMS | `models/tts/mms-tts-ind/` | `tts.mms.local_dir` | wajib (engine mms) |
 | Embedding | `models/embedding/all-MiniLM-L6-v2/` | `memory.embedding_local_dir` | wajib |
 | F5 cloning | `models/tts/f5-indo/` | `tts.f5_indo.ckpt_file` | opsional |
