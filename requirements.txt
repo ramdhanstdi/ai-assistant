@@ -1,8 +1,21 @@
 # ==========================================================
 # DEPENDENSI AI ASSISTANT LOKAL
-# Catatan device: target hardware = Intel Arc B580 + AMD Ryzen 8500G (TANPA CUDA).
-# Untuk akselerasi Intel Arc (xpu), install Intel Extension for PyTorch (IPEX)
-# secara terpisah sesuai versi torch-mu: https://intel.github.io/intel-extension-for-pytorch
+# Target hardware: Intel Arc B580 (dGPU) + AMD Ryzen 5 8500G (TANPA CUDA).
+#
+# PENTING - torch TIDAK ada di daftar ini. Install duluan dari index Intel XPU,
+# karena build PyPI biasa itu CPU-only dan tidak akan pernah melihat Arc:
+#
+#   pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 \
+#       --index-url https://download.pytorch.org/whl/xpu
+#   pip install -r requirements.txt
+#
+# Kenapa dipatok 2.11.0: torchaudio (dibutuhkan engine TTS f5_indo) rilis terakhirnya
+# 2.11.0, jadi trio 2.11.0/0.26.0/2.11.0 adalah kombinasi konsisten terakhir yang
+# lengkap. Kalau f5_indo tidak dipakai, torch 2.13.0+xpu juga boleh.
+# Intel Extension for PyTorch (IPEX) TIDAK diperlukan lagi - dukungan XPU sudah
+# menyatu di torch inti; yang wajib hanyalah driver Intel Graphics terbaru.
+#
+# Verifikasi setelah install:  python scripts/check_hardware.py
 # ==========================================================
 
 # --- Core & Config ---
@@ -11,13 +24,18 @@ requests==2.31.0
 aiohttp
 
 # --- STT (Speech to Text) ---
-faster-whisper
+faster-whisper     # backend default (CTranslate2, CPU-only untuk Intel)
 SpeechRecognition==3.10.1
 PyAudio            # backend mikrofon untuk SpeechRecognition (sr.Microphone)
-numpy
+# openvino 2026.2.x mensyaratkan numpy<2.5.0. Jangan naikkan tanpa cek ulang.
+numpy<2.5
 
-# --- LLM / ML Foundation ---
-torch              # untuk MMS/F5 TTS & (opsional) vision. Pilih build sesuai hardware.
+# --- Akselerasi Intel Arc: STT di GPU (backend stt.backend = "openvino") ---
+# Runtime saja (menarik openvino + openvino-tokenizers, TANPA torch/transformers).
+# Konversi model ke OpenVINO IR TIDAK dilakukan di venv ini -- optimum-intel menuntut
+# transformers<5.1 & safetensors<0.8.0 yang bentrok dengan transformers 5.x di sini.
+# Pakai venv kedua; resepnya di models/README.md bagian "Whisper -> OpenVINO IR".
+openvino-genai==2026.2.1
 
 # --- TTS lokal (default: MMS-TTS Bahasa Indonesia) ---
 transformers       # VitsModel untuk facebook/mms-tts-ind
@@ -26,12 +44,13 @@ scipy
 sounddevice        # pemutaran waveform ke speaker
 
 # --- TTS voice cloning (opsional, engine f5_indo) ---
-# Install: pip install f5-tts torchaudio==2.10.0   (torchaudio HARUS samakan versi torch)
+# Install: pip install f5-tts   (torchaudio sudah ikut dari trio XPU di atas)
 # Tidak butuh FFmpeg: modules/tts_f5.py sudah patch torchaudio.load -> soundfile,
 # set KMP_DUPLICATE_LIB_OK, dan pre-load pyarrow untuk cegah segfault di Windows.
-# CATATAN: di CPU sangat lambat (~90 dtk/kalimat). Praktis hanya bila ada GPU.
+# CATATAN: di CPU sangat lambat (~90 dtk/kalimat) -> inilah kandidat utama pemakai
+# Intel Arc (device: auto -> xpu di config.yaml). Paket ini berat (gradio, wandb,
+# bitsandbytes, torchcodec) -- install hanya bila voice cloning benar-benar dipakai.
 # f5-tts
-# torchaudio==2.10.0
 
 # --- TTS legacy (opsional, engine edge -> cloud Microsoft) ---
 edge-tts           # dibutuhkan hanya bila tts.engine = "edge"
@@ -44,6 +63,8 @@ sentence-transformers   # embedding all-MiniLM-L6-v2 untuk RAG
 
 # --- Vision (OPSIONAL / saat ini belum dirangkai ke main.py) ---
 # Berat (torch + transformers + opencv). Uncomment hanya bila vision diaktifkan.
+# Catatan Tahap B: openvino-genai (sudah di atas) punya VLMPipeline yang bisa
+# menjalankan VLM di Arc -- pertimbangkan itu sebelum menambah dependensi torch vision.
 # opencv-python==4.9.0.80
 # Pillow
 # einops
