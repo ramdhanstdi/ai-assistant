@@ -2,7 +2,7 @@
 LocalIO — implementasi kontrak I/O untuk PC (mic + speaker).
 
 Membungkus kode yang SUDAH jalan tanpa menulis ulang:
-- LocalMicSource  -> STTManager.capture() (rekam mic via SpeechRecognition)
+- LocalMicSource  -> stt.capture() (rekam mic via SpeechRecognition; lihat BaseSTT)
 - LocalSpeakerSink-> engine TTS dari get_tts_manager() (stream_tts ke speaker)
 - LocalFeedbackSink-> cetak state ke terminal (cue robot belum ada di PC)
 
@@ -17,7 +17,7 @@ from modules.io_contracts import AudioSource, AudioSink, FeedbackSink
 
 
 class LocalMicSource(AudioSource):
-    """AudioSource dari mikrofon PC. Membungkus STTManager.capture()."""
+    """AudioSource dari mikrofon PC. Membungkus capture() dari backend STT mana pun."""
 
     def __init__(self, stt):
         self._stt = stt

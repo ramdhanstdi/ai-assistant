@@ -1,19 +1,24 @@
-import yaml
+"""
+STT backend faster-whisper (CTranslate2) — berjalan di CPU (Ryzen 8500G).
+
+CATATAN HARDWARE: CTranslate2 tidak punya backend Intel GPU, jadi backend ini SELALU
+CPU (atau CUDA di mesin NVIDIA). Untuk memakai Intel Arc, pilih backend 'openvino'
+di config.yaml -> stt.backend (lihat modules/stt_ov.py).
+
+Bagian mic (capture) ada di modules/stt_base.py, dibagi dengan backend lain.
+"""
 import os
-import numpy as np
-import speech_recognition as sr
+
 from faster_whisper import WhisperModel
 
-class STTManager:
+from modules.stt_base import BaseSTT
+
+
+class STTManager(BaseSTT):
     def __init__(self, config_path="config.yaml"):
-        # Load configuration
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Konfigurasi file {config_path} tidak ditemukan!")
-            
-        with open(config_path, 'r') as file:
-            self.config = yaml.safe_load(file)
-            
-        stt_conf = self.config.get('stt', {})
+        super().__init__(config_path)
+
+        stt_conf = self.stt_conf
 
         # Ambil nilai parameter dinamis dari config.yaml
         # 'model' kini dibaca dari config (sebelumnya hard-code). Fallback ke 'model_size' lama.
@@ -33,34 +38,6 @@ class STTManager:
 
         # Inisialisasi model faster-whisper dengan setting dinamis
         self.model = WhisperModel(model_name, device=device, compute_type=compute_type, cpu_threads=cpu_threads)
-        self.recognizer = sr.Recognizer()
-        self.recognizer.dynamic_energy_threshold = True
-
-    def capture(self):
-        """
-        Merekam audio dari mikrofon default hingga ada keheningan.
-        Mengembalikan numpy array float32 (16kHz mono) atau None bila tidak ada suara.
-        Bagian "mic-specific" ini dipakai oleh LocalMicSource (lihat modules/local_io.py).
-        """
-        with sr.Microphone() as source:
-            print("🎙️ Mendengarkan... (Silakan bicara, akan berhenti otomatis setelah ada jeda keheningan)")
-
-            # Anda bisa menyesuaikan noise floor ambient untuk akurasi deteksi silence yang lebih baik
-            self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-
-            # listen() akan merekam hingga mendeteksi keheningan/silence
-            try:
-                audio_data = self.recognizer.listen(source, timeout=5.0, phrase_time_limit=15.0)
-            except sr.WaitTimeoutError:
-                return None
-
-            print("⏳ Memproses file audio dengan Whisper...")
-
-        # Ambil raw data 16kHz, 16-bit mono
-        raw_data = audio_data.get_raw_data(convert_rate=16000, convert_width=2)
-
-        # Ubah ke numpy array float32 yang diminta faster-whisper
-        return np.frombuffer(raw_data, dtype=np.int16).astype(np.float32) / 32768.0
 
     def transcribe(self, audio_np) -> str:
         """
@@ -71,11 +48,8 @@ class STTManager:
         if audio_np is None or len(audio_np) == 0:
             return ""
 
-        # Ambil setelan bahasa dari config
-        forced_language = self.config.get('stt', {}).get('language', 'id')
-
         # Masukkan numpy array ke transcribe() dengan bahasa dipaksa
-        segments, info = self.model.transcribe(audio_np, language=forced_language, task="transcribe", condition_on_previous_text=False, vad_filter=True, beam_size=self.beam_size)
+        segments, info = self.model.transcribe(audio_np, language=self.language, task="transcribe", condition_on_previous_text=False, vad_filter=True, beam_size=self.beam_size)
 
         # Segment bertipe generator, sehingga kita loop dan gabungkan hasilnya
         texts = []
@@ -84,10 +58,3 @@ class STTManager:
             texts.append(segment.text)
 
         return " ".join(texts).strip()
-
-    def listen_and_transcribe(self) -> str:
-        """Kompatibilitas: rekam mic lalu transkrip (capture + transcribe)."""
-        audio_np = self.capture()
-        if audio_np is None:
-            return ""
-        return self.transcribe(audio_np)
