@@ -3,6 +3,7 @@ import json
 import yaml
 import os
 from typing import List, Dict, Generator
+from modules.text_processing import StreamSentenceChunker
 
 class LLMClient:
     def __init__(self, config_path="config.yaml"):
@@ -73,8 +74,7 @@ class LLMClient:
             print(f"\n❌ Error tidak dapat terhubung ke LLM: {e}")
             return
 
-        current_sentence = []
-        punctuation_marks = ['.', ',', '!', '?', '\n', ':', ';']
+        chunker = StreamSentenceChunker()
         tool_acc = {}  # index -> {id, name, arguments}
 
         for line in response.iter_lines():
@@ -111,15 +111,8 @@ class LLMClient:
                             # Cetak raw token ke terminal untuk visualisasi real-time
                             print(content, end='', flush=True)
 
-                            current_sentence.append(content)
-
-                            # Jika menemukan tanda baca akhir kalimat
-                            if any(p in content for p in punctuation_marks):
-                                chunk_text = "".join(current_sentence).strip()
-                                if chunk_text:
-                                    yield chunk_text
-                                # Reset buffer kalimat
-                                current_sentence = []
+                            for sentence in chunker.feed(content):
+                                yield sentence
                 except json.JSONDecodeError:
                     continue
 
@@ -130,8 +123,6 @@ class LLMClient:
                 if a["name"]:
                     tool_calls_out.append({"id": a["id"], "name": a["name"], "arguments": a["arguments"]})
 
-        # Proses sisa teks yang belum terbaca/ter-yield
-        if current_sentence:
-            chunk_text = "".join(current_sentence).strip()
-            if chunk_text:
-                yield chunk_text
+        # Sisa kalimat di buffer saat stream selesai
+        for sentence in chunker.flush():
+            yield sentence

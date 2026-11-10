@@ -14,6 +14,7 @@ import os
 import time
 import yaml
 from typing import Iterator
+from modules.text_processing import normalize_for_tts
 
 
 def pick_device(pref: str) -> str:
@@ -84,7 +85,10 @@ class MMSTTSManager:
 
     def _synthesize(self, text: str):
         """Teks -> waveform numpy float32 (mono)."""
-        inputs = self.tokenizer(text, return_tensors="pt").to(self.device)
+        clean_text = normalize_for_tts(text)
+        if not clean_text:
+            return None
+        inputs = self.tokenizer(clean_text, return_tensors="pt").to(self.device)
         with self._torch.no_grad():
             waveform = self.model(**inputs).waveform
         # Kernel XPU berjalan asinkron. Sinkronkan eksplisit supaya error kernel muncul
@@ -107,7 +111,10 @@ class MMSTTSManager:
                 continue
             try:
                 wav = self._synthesize(text_chunk.strip())
-                print(f"🔊 Memutar audio: {text_chunk.strip()}")
+                if wav is None:
+                    continue
+                clean_text = normalize_for_tts(text_chunk.strip())
+                print(f"🔊 Memutar audio: {clean_text}")
                 self._play(wav, self.sample_rate)
             except Exception as e:
                 print(f"❌ Error sintesis MMS-TTS: {e}")

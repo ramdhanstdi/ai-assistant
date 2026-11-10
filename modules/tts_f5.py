@@ -21,6 +21,7 @@ import yaml
 from typing import Iterator
 
 from modules.tts_mms import pick_device
+from modules.text_processing import normalize_for_tts
 
 
 def apply_windows_patches():
@@ -132,14 +133,17 @@ class F5TTSManager:
         for text_chunk in text_generator:
             if not text_chunk or not text_chunk.strip():
                 continue
+            clean_text = normalize_for_tts(text_chunk.strip())
+            if not clean_text:
+                continue
             try:
                 self.model.infer(
                     ref_file=self.ref_audio,
                     ref_text=self.ref_text,
-                    gen_text=text_chunk.strip(),
+                    gen_text=clean_text,
                     file_wave=tmp,
                 )
-                print(f"🔊 Memutar audio: {text_chunk.strip()}")
+                print(f"🔊 Memutar audio: {clean_text}")
                 self._play_file(tmp)
             except Exception as e:
                 print(f"❌ Error sintesis F5-TTS: {e}")

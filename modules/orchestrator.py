@@ -30,7 +30,7 @@ class Session:
 class Orchestrator:
     STOP_WORDS = ['berhenti', 'keluar', 'matikan', 'tutup', 'exit']
     FACT_WORDS = ['namaku', 'saya adalah', 'saya suka', 'aku tinggal']
-    FILLER_TEXT = "Mmmmmmmmmmmmmmm!"
+    FILLER_TEXT = "Hmm."
     COMPRESS_FILLER = "Sebentar, aku mau menyimpan ingatan dulu."
     EXIT_FILLER = "Oke, aku rangkum dulu sebentar ya."
     MAX_TOOL_HOPS = 3        # batas iterasi tool-calling agar tidak loop tak hingga
@@ -103,7 +103,7 @@ class Orchestrator:
         for chunk in self.llm.stream_response(temp_msgs,
                                               max_tokens=self.SUMMARY_MAX_TOKENS, disable_thinking=True):
             parts.append(chunk)
-        return "".join(parts).strip()
+        return " ".join(parts).strip()
 
     # ===================== Loop utama =====================
     def run(self, session: Session):
@@ -345,7 +345,7 @@ class Orchestrator:
         for chunk in self.llm.stream_response(summary_temp,
                                               max_tokens=self.SUMMARY_MAX_TOKENS, disable_thinking=True):
             summary_parts.append(chunk)
-        new_summary_text = "".join(summary_parts).strip()
+        new_summary_text = " ".join(summary_parts).strip()
 
         messages = ([messages[0]]
                     + [{"role": "system", "content": f"Ringkasan percakapan sebelumnya: {new_summary_text}"}]
