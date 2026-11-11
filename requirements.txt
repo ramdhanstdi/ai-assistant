@@ -1,26 +1,84 @@
+# ==========================================================
+# DEPENDENSI AI ASSISTANT LOKAL
+# Target hardware: Intel Arc B580 (dGPU) + AMD Ryzen 5 8500G (TANPA CUDA).
+#
+# PENTING - torch TIDAK ada di daftar ini. Install duluan dari index Intel XPU,
+# karena build PyPI biasa itu CPU-only dan tidak akan pernah melihat Arc:
+#
+#   pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 \
+#       --index-url https://download.pytorch.org/whl/xpu
+#   pip install -r requirements.txt
+#
+# Kenapa dipatok 2.11.0: torchaudio (dibutuhkan engine TTS f5_indo) rilis terakhirnya
+# 2.11.0, jadi trio 2.11.0/0.26.0/2.11.0 adalah kombinasi konsisten terakhir yang
+# lengkap. Kalau f5_indo tidak dipakai, torch 2.13.0+xpu juga boleh.
+# Intel Extension for PyTorch (IPEX) TIDAK diperlukan lagi - dukungan XPU sudah
+# menyatu di torch inti; yang wajib hanyalah driver Intel Graphics terbaru.
+#
+# Verifikasi setelah install:  python scripts/check_hardware.py
+# ==========================================================
+
 # --- Core & Config ---
 PyYAML==6.0.1
-requests==2.31.0
+# Naik dari pin lama 2.31.0: rantai dependensi f5-tts (cached_path/wandb/datasets)
+# menuntut >=2.33, dan 2.32+ menutup CVE-2024-35195. Kode hanya memakai requests.post.
+requests>=2.32
 aiohttp
 
 # --- STT (Speech to Text) ---
-faster-whisper
+faster-whisper     # backend default (CTranslate2, CPU-only untuk Intel)
 SpeechRecognition==3.10.1
+PyAudio            # backend mikrofon untuk SpeechRecognition (sr.Microphone)
+# openvino 2026.2.x mensyaratkan numpy<2.5.0. Jangan naikkan tanpa cek ulang.
+numpy<2.5
 
-# --- Vision (Image to Text via iGPU/CPU) ---
-opencv-python==4.9.0.80
-Pillow
-transformers
-einops
-accelerate
+# --- Akselerasi Intel Arc: STT di GPU (backend stt.backend = "openvino") ---
+# Runtime saja (menarik openvino + openvino-tokenizers, TANPA torch/transformers).
+# Konversi model ke OpenVINO IR TIDAK dilakukan di venv ini -- optimum-intel menuntut
+# transformers<5.1 & safetensors<0.8.0 yang bentrok dengan transformers 5.x di sini.
+# Pakai venv kedua; resepnya di models/README.md bagian "Whisper -> OpenVINO IR".
+openvino-genai==2026.2.1
+
+# --- TTS lokal (default: MMS-TTS Bahasa Indonesia) ---
+transformers       # VitsModel untuk facebook/mms-tts-ind
+soundfile
+scipy
+sounddevice        # pemutaran waveform ke speaker
+
+# --- TTS voice cloning (opsional, engine f5_indo) ---
+# Paket ini BERAT (50+ dependensi: gradio, wandb, boto3, numba, pyarrow) dan rewel.
+# Install hanya bila voice cloning dipakai, dan WAJIB dengan constraints supaya tidak
+# menyeret torch ke build CPU dari PyPI (yang membuat Arc tidak terpakai):
+#
+#   printf '%s\n' "torch==2.11.0+xpu" "torchaudio==2.11.0+xpu" \
+#       "torchvision==0.26.0+xpu" "numpy<2.5" "transformers==5.14.1" > pagar.txt
+#   pip install f5-tts -c pagar.txt
+#   pip uninstall -y torchcodec        # WAJIB, lihat alasan di bawah
+#
+# torchcodec HARUS dicabut setelahnya: ia butuh FFmpeg (tidak ada di Windows ini) dan
+# gagal memuat DLL-nya, sementara sentence-transformers mengimpornya tanpa pengaman
+# -> RAG/ChromaDB ikut mati. modules/tts_f5.py memang sudah mengalihkan torchaudio.load
+# ke soundfile, jadi F5 tidak membutuhkannya. Efek samping: 'pip check' akan bilang
+# "f5-tts requires torchcodec, which is not installed" -- itu wajar dan aman.
+# Install ini juga menurunkan rich 15 -> 13.9 (dituntut cached-path; chromadb & typer
+# tetap puas) dan menaikkan requests.
+# f5-tts
+
+# --- TTS legacy (opsional, engine edge -> cloud Microsoft) ---
+edge-tts           # dibutuhkan hanya bila tts.engine = "edge"
+pygame             # pemutaran mp3 untuk Edge TTS
 
 # --- Memory & RAG ---
-chromadb==0.4.24
+# chromadb 0.4.x pakai np.float_ yang DIHAPUS di NumPy 2.0 -> wajib >=0.5.20.
+chromadb>=0.5.20
+sentence-transformers   # embedding all-MiniLM-L6-v2 untuk RAG
 
-# --- LLM / ML Foundation ---
-torch
-torchvision
-
-# --- TTS (Text to Speech sementara) ---
-piper-tts
-sounddevice
+# --- Vision (OPSIONAL / saat ini belum dirangkai ke main.py) ---
+# Berat (torch + transformers + opencv). Uncomment hanya bila vision diaktifkan.
+# Catatan Tahap B: openvino-genai (sudah di atas) punya VLMPipeline yang bisa
+# menjalankan VLM di Arc -- pertimbangkan itu sebelum menambah dependensi torch vision.
+# opencv-python==4.9.0.80
+# Pillow
+# einops
+# accelerate
+# torchvision

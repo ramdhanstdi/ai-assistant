@@ -1,0 +1,39 @@
+# MODULE MAP
+
+Status: **Tahap A selesai (Langkah 1–7).** File → tanggung jawab → dipanggil oleh → status.
+
+| File | Inti | Tanggung jawab | Dipanggil oleh | Status |
+|------|------|----------------|----------------|--------|
+| `main.py` | `main()` | Perakit tipis: load modul → `LocalIO` → `Orchestrator` → `Session` → `run()`. Berisi `DEFAULT_SYSTEM_PROMPT` + guard env (KMP, UTF-8). | entry point | **AKTIF** |
+| `modules/orchestrator.py` | `Orchestrator`, `Session` | Otak: loop, memori (load/save/compress/summarize), tool-loop, profil, episodic. Dua mode ucap: `_stream_round` (per kalimat) & `_round_whole` (jawaban utuh, engine mahal seperti F5). | `main.py` | **AKTIF** |
+| `modules/io_contracts.py` | `AudioSource`/`AudioSink`/`FeedbackSink` | Kontrak I/O (ABC) pemisah otak ↔ perangkat. `AudioSink` juga membawa flag `stream_by_sentence`/`wants_filler` sebagai cara sink memberi tahu otak cara mengucapkan. | `local_io`, orchestrator | **AKTIF** |
+| `modules/local_io.py` | `LocalMicSource`/`LocalSpeakerSink`/`LocalFeedbackSink`/`LocalIO` | Implementasi kontrak utk mic/speaker PC (bungkus STT/TTS). | `main.py` | **AKTIF** |
+| `modules/stt_factory.py` | `get_stt_manager()` | Pilih backend STT via `config.stt.backend`; fallback ke CPU bila OpenVINO gagal. | `main.py` | **AKTIF** |
+| `modules/stt_base.py` | `BaseSTT.capture()` | Bagian STT non-engine: config + rekam mic (SpeechRecognition). Dibagi semua backend. | `stt_engine`, `stt_ov` | **AKTIF** |
+| `modules/stt_engine.py` | `STTManager.transcribe()` | Transkrip faster-whisper (CTranslate2, CPU). `transcribe(audio)` reusable utk RobotIO. | `stt_factory` | **AKTIF / DEFAULT** |
+| `modules/stt_ov.py` | `OVSTTManager.transcribe()` | Transkrip Whisper OpenVINO di Arc (`GPU`), fallback CPU; butuh IR hasil konversi. | `stt_factory` (`openvino`) | **AKTIF (opt-in)** |
+| `modules/llm_client.py` | `LLMClient.stream_response()` | Streaming LM Studio + tool-calling + `disable_thinking` + override `max_tokens`. | orchestrator | **AKTIF** |
+| `modules/tts_factory.py` | `get_tts_manager()` | Pilih engine TTS via `config.tts.engine` + terapkan override `tts.stream_sentences`/`tts.filler`. | `main.py` | **AKTIF** |
+| `modules/tts_mms.py` | `MMSTTSManager` | MMS-TTS Indonesia lokal (default). | `tts_factory` | **AKTIF / DEFAULT** |
+| `modules/tts_f5.py` | `F5TTSManager`, `apply_windows_patches()` | F5-TTS voice cloning; patch Windows (KMP/pyarrow/torchaudio.load→soundfile) kini fungsi modul agar dipakai bench juga. | `tts_factory` (`f5_indo`), `bench_tts_f5` | **TERUJI di Arc** (3.9 s/kalimat; 81 s di CPU) |
+| `modules/tts_engine.py` | `EdgeTTSManager` | Edge TTS (cloud). | `tts_factory` (`edge`) | **LEGACY** |
+| `modules/tool_registry.py` | `ToolRegistry`, `build_default_registry` | Lapisan aksi: `get_waktu`, `cari_memori`, `ingat_profil`. | orchestrator | **AKTIF** |
+| `modules/memory_engine.py` | `VectorDBManager` | RAG jangka panjang (ChromaDB + embedding lokal). | orchestrator | **AKTIF** |
+| `modules/profile_store.py` | `ProfileStore` | Profil terstruktur (`data/profile.json`), selalu disuntik. | orchestrator, tools | **AKTIF** |
+| `modules/episodic_log.py` | `EpisodicLogger` | Log episodik JSONL (`data/episodes.jsonl`), extensible. | orchestrator | **AKTIF** |
+| `modules/model_paths.py` | `resolve()` | Folder model lokal → fallback repo-id. | stt/mms/memory | **AKTIF** |
+| `reset_memory.py` | `main()` | Factory reset: hapus memory.json + data/(profile, vectordb, episodes). | manual | **AKTIF** |
+| `scripts/check_hardware.py` | `main()` | Diagnosa: torch `+xpu`/Arc, device OpenVINO, batas numpy. | manual | Util |
+| `scripts/bench_tts.py` · `scripts/bench_stt.py` · `scripts/bench_tts_f5.py` | `main()` | Ukur CPU vs Arc untuk TTS (MMS & F5) & STT (dasar keputusan device di ARCHITECTURE §8). | manual | Util |
+| `scripts/patch_ov_whisper_config.py` | `main()` | Tambal `lang_to_id` di `generation_config.json` hasil ekspor OpenVINO. | manual (sekali per konversi) | Util |
+| `config.yaml` | — | Konfigurasi global. | semua `__init__` | **AKTIF** |
+| `modules/router.py` | `Router` | Intent regex. | — | **DEAD** |
+| `modules/vision_engine.py` | `VisionManager` | Moondream2 + webcam. | — | **DEAD** (Tahap B) |
+| `modules/memory_rag.py` | `MemoryManager` | Memori alternatif (duplikat). | — | **DEAD** |
+| `test_stt.py` | `main()` | Demo TTS (salah nama). | manual | Util |
+
+## Catatan keterhubungan
+- Aliran utama: `main.py` → `Orchestrator.run(Session(LocalIO, messages))`. Otak tak menyentuh
+  mic/TTS langsung — semua lewat `session.io` (kontrak). RobotIO Tahap B = colok implementasi baru.
+- Tiga modul **DEAD** (`router`, `vision_engine`, `memory_rag`) belum dipakai; `vision_engine`
+  kandidat dihidupkan di Tahap B (vision via ESP32-CAM).

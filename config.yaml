@@ -10,27 +10,110 @@ llm:
   # Pastikan LM Studio sedang berjalan dan server aktif di port 1234
   api_base_url: "http://localhost:1234/v1"
   api_key: "lm-studio"
+  # Model dibuat agnostik: ganti string ini sesuai model yang dimuat di LM Studio
+  # (atau endpoint OpenAI-compatible lain seperti Ollama). JANGAN hard-code di kode.
+  model: "qwen/qwen3.5-9b"
   temperature: 0.7
-  max_tokens: 512
+  max_tokens: 8000
+  # Matikan mode "thinking/reasoning" (mis. Qwen3). Tanpa ini, reasoning bisa menghabiskan
+  # token sehingga jawaban kosong, dan jauh lebih lambat. Set false bila ingin reasoning.
+  disable_thinking: false
 
 stt:
-  # Berjalan di CPU AMD Ryzen 8500G
+  # Pilih backend transkripsi (dipilih lewat modules/stt_factory.py):
+  #   faster_whisper -> CTranslate2 di CPU Ryzen. CTranslate2 TIDAK punya backend Intel GPU,
+  #                     jadi backend ini selalu memakan CPU.
+  #   openvino       -> Whisper di Intel Arc B580 (device 'GPU'), membebaskan CPU.
+  #                     Butuh model format OpenVINO IV/IR hasil konversi sekali jalan
+  #                     (lihat models/README.md) -> blok 'openvino' di bawah.
+  # Hasil ukur scripts/bench_stt.py (audio 3.9 s, model medium):
+  #   faster_whisper cpu/int8 = 3603 ms (1.1x realtime)
+  #   openvino GPU (Arc B580) =  435 ms (9.0x realtime)  <-- 8x lebih cepat, teks sama
+  #   openvino CPU            = 2184 ms (1.8x realtime)
+  backend: "openvino"
+
+  # --- Backend faster_whisper (CPU AMD Ryzen 8500G) ---
   # 'int8' digunakan agar konsumsi RAM sangat kecil namun tetap akurat
-  model_size: "base" 
+  # 'model'     = repo-id Hugging Face (fallback auto-download).
+  # 'local_dir' = folder lokal hasil download manual; dipakai bila berisi file (lihat models/README.md).
+  model: "cahya/faster-whisper-medium-id"
+  local_dir: "models/stt/faster-whisper-medium-id"
   device: "cpu"
   compute_type: "int8"
   language: "id" # Paksa deteksi ke bahasa Indonesia agar lebih cepat
+  # --- Tuning kecepatan CPU (tanpa turunkan kualitas berarti) ---
+  cpu_threads: 0 # 0 = pakai semua core (os.cpu_count()). Mempercepat di CPU multi-core.
+  beam_size: 1 # 1 = greedy (lebih cepat). Default whisper 5; untuk obrolan kasual beda akurasi minim.
+
+  # --- Backend openvino (Intel Arc B580) ---
+  # Aktif hanya bila stt.backend = "openvino". Model WAJIB format OpenVINO IR hasil
+  # 'optimum-cli export openvino' (model CTranslate2 di atas TIDAK bisa dipakai di sini).
+  openvino:
+    model_dir: "models/stt/whisper-medium-id-ov"
+    device: "GPU" # "GPU" = Arc B580 (dGPU), "CPU", atau "GPU.1"/"NPU" bila ada.
+    # Cache hasil kompilasi kernel GPU (start pertama ~12 s, berikutnya jauh lebih cepat).
+    # Kosongkan ("") untuk menonaktifkan. Folder data/ sudah gitignored.
+    cache_dir: "data/ov_cache"
+    # Bila device ini gagal, modul otomatis mencoba "CPU"; bila model belum dikonversi,
+    # stt_factory jatuh ke backend faster_whisper dengan peringatan.
 
 vision:
-  # Berjalan di iGPU / CPU
-  # Untuk tahap awal, kita set ke 'cpu' agar stabil dan tidak ada error library.
-  # Nanti bisa kita optimasi menggunakan 'dml' (DirectML) untuk iGPU AMD Radeon
+  # Berjalan di iGPU / CPU. CATATAN: vision belum dirangkai ke main.py (modul opsional).
   model_id: "vikhyatk/moondream2"
-  revision: "2024-05-08" 
+  local_dir: "models/vision/moondream2"
+  revision: "2024-05-08"
   device: "cpu"
 
 tts:
-  # Kita menggunakan Edge TTS (Microsoft) yang butuh internet ringan
+  # Pilih engine TTS yang aktif. Semua di-load lewat factory (modules/tts_factory.py).
+  #   mms     -> Meta MMS-TTS (Bahasa Indonesia, 100% lokal/offline, Intel Arc/CPU). DEFAULT.
+  #   f5_indo -> F5-TTS finetune Indonesia (voice cloning dari sampel di folder voices/).
+  #   edge    -> Edge TTS Microsoft (cloud, butuh internet) -- legacy/fallback.
+  engine: "mms"
+
+  # --- Cara mengucapkan jawaban (otomatis mengikuti engine, lihat modules/io_contracts.py) ---
+  #   mms / edge  -> streaming per kalimat + filler "Mmmm" saat berpikir (latensi terasa kecil).
+  #   f5_indo     -> jawaban ditunggu LENGKAP lalu diucapkan sekali, TANPA filler. Sebab tiap
+  #                  panggilan F5 ~4 detik apa pun panjang teksnya, jadi memotong per koma
+  #                  malah menambah delay dan memecah intonasi (prosodi dihitung per potongan).
+  # Dua kunci di bawah hanya untuk memaksa perilaku lain dari default engine-nya.
+  # Biarkan dikomentari agar ikut engine.
+  # stream_sentences: true # false = tunggu jawaban lengkap dulu, baru diucapkan
+  # filler: true # false = jangan putar filler "Mmmm" saat menunggu LLM
+
+  # --- MMS-TTS (default lokal Bahasa Indonesia) ---
+  mms:
+    model_id: "facebook/mms-tts-ind" # repo-id (fallback auto-download)
+    local_dir: "models/tts/mms-tts-ind" # folder lokal download manual (lihat models/README.md)
+    # SENGAJA 'cpu', BUKAN 'auto'. Hasil ukur scripts/bench_tts.py di Arc B580 + Ryzen 8500G:
+    #   cpu = ~780 ms/kalimat (5.6x realtime)  |  xpu = ~2900 ms/kalimat (1.5x realtime)
+    # MMS-TTS (VITS) itu model kecil dengan ratusan op berurutan, jadi ongkos dispatch
+    # kernel GPU (flat ~2.8 s, tidak peduli panjang kalimat) mengalahkan komputasinya.
+    # Ubah ke 'auto'/'xpu' hanya bila hasil benchmark di mesinmu berbeda.
+    device: "cpu"
+
+  # --- F5-TTS voice cloning (Bahasa Indonesia) ---
+  # Taruh sampel suaramu di folder voices/ (lihat voices/README.md untuk format).
+  f5_indo:
+    model_repo: "Eempostor/F5-TTS-INDO-FINETUNE"
+    # 'auto' MEMANG tepat di sini (kebalikan dari mms di atas). Hasil ukur
+    # scripts/bench_tts_f5.py di Arc B580 + Ryzen 8500G:
+    #   xpu = 3.9 s/kalimat (0.73x realtime), load model 4 s
+    #   cpu =  81 s/kalimat (0.03x realtime), load model 40 s   -> 21x lebih lambat
+    # F5 model besar dengan banyak langkah sampling, jadi GPU jelas menang.
+    # CATATAN: 0.73x realtime masih < 1, artinya sintesis lebih lambat dari durasi
+    # bicara -> streaming per kalimat akan terasa menunggu (~4 s per kalimat). Untuk
+    # obrolan cepat, engine 'mms' tetap lebih nyaman; pakai f5_indo bila voice cloning
+    # yang diutamakan. Menurunkan nfe_step (default 32) bisa mempercepat dengan
+    # trade-off kualitas.
+    device: "auto"
+    # Checkpoint hasil download manual (lihat models/README.md). Kosongkan untuk pakai base default.
+    ckpt_file: "models/tts/f5-indo/f5_tts_ind.pt"
+    vocab_file: "" # repo finetune tidak menyertakan vocab -> biarkan kosong (pakai vocab base F5)
+    ref_audio: "voices/reference.wav" # sampel suara yang akan ditiru (clone)
+    ref_text: "voices/reference.txt" # transkrip persis dari ref_audio
+
+  # --- Edge TTS (legacy, cloud) ---
   # Pilihan suara Indonesia: id-ID-GadisNeural (Perempuan) atau id-ID-ArdiNeural (Laki-laki)
   voice: "id-ID-GadisNeural"
   rate: "+30%" # Kecepatan normal
@@ -40,3 +123,6 @@ memory:
   # Database Vektor (ChromaDB) untuk RAG Data Pribadi
   persist_directory: "data/vectordb"
   collection_name: "user_profile"
+  # Model embedding untuk RAG. repo-id (fallback) + folder lokal download manual.
+  embedding_model: "all-MiniLM-L6-v2"
+  embedding_local_dir: "models/embedding/all-MiniLM-L6-v2"

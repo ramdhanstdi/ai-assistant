@@ -4,6 +4,7 @@ import asyncio
 import edge_tts
 import pygame
 from typing import Iterator
+from modules.text_processing import normalize_for_tts
 
 class EdgeTTSManager:
     def __init__(self, config_path="config.yaml"):
@@ -31,12 +32,16 @@ class EdgeTTSManager:
         menyimpannya ke temp file, lalu memutarnya secara sinkron
         menggunakan PyGame Mixer.
         """
+        clean_text = normalize_for_tts(text)
+        if not clean_text:
+            return
+
         temp_filename = "temp_chunk.mp3"
         
         try:
             # 1. Konfigurasi objek sintesis Edge TTS
             communicate = edge_tts.Communicate(
-                text=text, 
+                text=clean_text, 
                 voice=self.voice, 
                 rate=self.rate, 
                 volume=self.volume
@@ -49,7 +54,7 @@ class EdgeTTSManager:
             pygame.mixer.music.load(temp_filename)
             pygame.mixer.music.play()
             
-            print(f"🔊 Memutar audio: {text}")
+            print(f"🔊 Memutar audio: {clean_text}")
             
             # 4. Tunggu / blocking secara asynchronous sampai durasi audio selesai diputar
             while pygame.mixer.music.get_busy():

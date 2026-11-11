@@ -1,69 +1,70 @@
-import yaml
+"""
+STT backend faster-whisper (CTranslate2) — berjalan di CPU (Ryzen 8500G).
+
+CATATAN HARDWARE: CTranslate2 tidak punya backend Intel GPU, jadi backend ini SELALU
+CPU (atau CUDA di mesin NVIDIA). Untuk memakai Intel Arc, pilih backend 'openvino'
+di config.yaml -> stt.backend (lihat modules/stt_ov.py).
+
+Bagian mic (capture) ada di modules/stt_base.py, dibagi dengan backend lain.
+"""
 import os
-import numpy as np
-import speech_recognition as sr
+
 from faster_whisper import WhisperModel
 
-class STTManager:
+from modules.stt_base import BaseSTT
+
+
+class STTManager(BaseSTT):
     def __init__(self, config_path="config.yaml"):
-        # Load configuration
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Konfigurasi file {config_path} tidak ditemukan!")
-            
-        with open(config_path, 'r') as file:
-            self.config = yaml.safe_load(file)
-            
-        stt_conf = self.config.get('stt', {})
-        
+        super().__init__(config_path)
+
+        stt_conf = self.stt_conf
+
         # Ambil nilai parameter dinamis dari config.yaml
-        model_size = stt_conf.get('model_size', 'base')
+        # 'model' kini dibaca dari config (sebelumnya hard-code). Fallback ke 'model_size' lama.
+        # Pakai folder lokal (local_dir) bila berisi file hasil download manual, jika tidak repo-id.
+        from modules.model_paths import resolve
+        repo_id = stt_conf.get('model', stt_conf.get('model_size', 'cahya/faster-whisper-medium-id'))
+        model_name = resolve(stt_conf.get('local_dir'), repo_id)
         device = stt_conf.get('device', 'cpu')
         compute_type = stt_conf.get('compute_type', 'int8')
-        
-        print(f"Loading Whisper model 'cahya/faster-whisper-medium-id' on '{device}' with type '{compute_type}'...")
-        
+
+        # Tuning kecepatan: cpu_threads (0 = semua core) & beam_size (1 = greedy, lebih cepat).
+        cpu_threads = stt_conf.get('cpu_threads', 0) or os.cpu_count()
+        self.beam_size = stt_conf.get('beam_size', 1)
+
+        print(f"Loading Whisper model '{model_name}' on '{device}' with type '{compute_type}' "
+              f"(cpu_threads={cpu_threads}, beam_size={self.beam_size})...")
+
+        # faster-whisper memakai tokenizer.json dari folder model; bila TIDAK ada, ia
+        # diam-diam mengunduh tokenizer 'openai/whisper-tiny' dari internet (lihat
+        # faster_whisper/transcribe.py). Repo CTranslate2 cahya/ tidak menyertakannya, jadi
+        # tanpa file ini setup "100% offline" sebenarnya masih butuh koneksi saat start.
+        # Diberi peringatan, bukan error: auto-download tetap boleh kalau memang online.
+        if os.path.isdir(model_name) and not os.path.isfile(os.path.join(model_name, "tokenizer.json")):
+            print(f"⚠️ '{model_name}/tokenizer.json' tidak ada -> tokenizer akan DIUNDUH dari "
+                  f"Hugging Face saat start (butuh internet).")
+            print("   Lihat models/README.md §1 untuk melengkapinya agar benar-benar offline.")
+
         # Inisialisasi model faster-whisper dengan setting dinamis
-        self.model = WhisperModel("cahya/faster-whisper-medium-id", device=device, compute_type=compute_type)
-        self.recognizer = sr.Recognizer()
-        self.recognizer.dynamic_energy_threshold = True
+        self.model = WhisperModel(model_name, device=device, compute_type=compute_type, cpu_threads=cpu_threads)
 
-    def listen_and_transcribe(self) -> str:
+    def transcribe(self, audio_np) -> str:
         """
-        Merekam audio dari mikrofon default komputer hingga ada keheningan,
-        lalu mentranskripsikan hasilnya menggunakan model faster-whisper.
+        Transkripsi audio numpy (16kHz mono float32) menjadi teks.
+        Ini bagian "otak" yang reusable: dipakai untuk audio dari mic (LocalIO)
+        MAUPUN dari robot (RobotIO/PCM via WebSocket nanti). Sumber audio tidak penting.
         """
-        with sr.Microphone() as source:
-            print("🎙️ Mendengarkan... (Silakan bicara, akan berhenti otomatis setelah ada jeda keheningan)")
-            
-            # Anda bisa menyesuaikan noise floor ambient untuk akurasi deteksi silence yang lebih baik
-            self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
-            
-            # listen() akan merekam hingga mendeteksi keheningan/silence
-            try:
-                audio_data = self.recognizer.listen(source, timeout=5.0, phrase_time_limit=15.0)
-            except sr.WaitTimeoutError:
-                return ""
-                
-            print("⏳ Memproses file audio dengan Whisper...")
+        if audio_np is None or len(audio_np) == 0:
+            return ""
 
-        # Ambil raw data 16kHz, 16-bit mono
-        raw_data = audio_data.get_raw_data(convert_rate=16000, convert_width=2)
-        
-        # Ubah ke numpy array float32 yang diminta faster-whisper
-        audio_np = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32) / 32768.0
-        
-        # Ambil setelan bahasa dari config
-        forced_language = self.config.get('stt', {}).get('language', 'id')
-        
         # Masukkan numpy array ke transcribe() dengan bahasa dipaksa
-        segments, info = self.model.transcribe(audio_np, language=forced_language, task="transcribe", condition_on_previous_text=False, vad_filter=True)
+        segments, info = self.model.transcribe(audio_np, language=self.language, task="transcribe", condition_on_previous_text=False, vad_filter=True, beam_size=self.beam_size)
 
         # Segment bertipe generator, sehingga kita loop dan gabungkan hasilnya
         texts = []
         for segment in segments:
             print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))
             texts.append(segment.text)
-            
-        full_text = " ".join(texts).strip()
-        
-        return full_text
+
+        return " ".join(texts).strip()
